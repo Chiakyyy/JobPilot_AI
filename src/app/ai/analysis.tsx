@@ -1,5 +1,5 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -18,7 +18,16 @@ import { CvAnalysisResult } from '@/types/database';
 // This screen provides candidate cv to job offer alignment analysis with explicit privacy consent.
 export default function AiAnalysisScreen() {
   const router = useRouter();
-  const { offerId } = useLocalSearchParams<{ offerId: string }>();
+  const searchParams = useLocalSearchParams<{ offerId?: string | string[] }>();
+  const rawOfferId = searchParams.offerId;
+  const offerId = Array.isArray(rawOfferId) ? rawOfferId[0] : rawOfferId;
+
+  // This effect logs a warning when the offer identifier parameter is missing.
+  useEffect(() => {
+    if (!offerId) {
+      console.warn('AiAnalysisScreen: missing offerId in route parameters');
+    }
+  }, [offerId]);
 
   const { data: offer, isLoading: isOfferLoading } = useOffer(offerId);
   const { data: userCv, isLoading: isCvLoading } = useUserCv();
@@ -46,6 +55,19 @@ export default function AiAnalysisScreen() {
       setErrorMessage(message);
     }
   };
+
+  // If the offer identifier is missing, render an informative error state.
+  if (!offerId) {
+    return (
+      <View style={styles.centerContainer}>
+        <Text style={styles.errorTitle}>Identifiant manquant</Text>
+        <Text style={styles.errorBody}>Aucun identifiant d’offre d’emploi n’a été fourni.</Text>
+        <Pressable style={styles.secondaryButton} onPress={() => router.back()}>
+          <Text style={styles.secondaryButtonText}>Retour</Text>
+        </Pressable>
+      </View>
+    );
+  }
 
   if (isOfferLoading || isCvLoading) {
     return (

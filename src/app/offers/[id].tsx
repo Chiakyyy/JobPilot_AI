@@ -33,10 +33,12 @@ const STATUS_CONFIG: Record<ApplicationStatus, { label: string; bg: string; text
 // This screen displays complete details, creator actions and received applicants for a job offer.
 export default function OfferDetailScreen() {
   const router = useRouter();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const searchParams = useLocalSearchParams<{ id?: string | string[] }>();
+  const id = Array.isArray(searchParams.id) ? searchParams.id[0] : searchParams.id;
   const { user } = useAuth();
 
   const { data: offer, isLoading, isError, error, refetch } = useOffer(id);
+  const normalizedOfferId = offer?.id || id;
   const isOwner = Boolean(user?.id && offer?.user_id === user.id);
 
   const { data: existingApp, isLoading: isAppLoading } = useApplicationByOffer(
@@ -323,7 +325,14 @@ export default function OfferDetailScreen() {
             </Text>
             <Pressable
               style={styles.aiActionButton}
-              onPress={() => router.push({ pathname: '/ai/analysis', params: { offerId: offer.id } } as never)}>
+              onPress={() => {
+                if (normalizedOfferId) {
+                  router.push({
+                    pathname: '/ai/analysis',
+                    params: { offerId: normalizedOfferId },
+                  } as never);
+                }
+              }}>
               <Text style={styles.aiActionButtonText}>Lancer l’analyse IA ➔</Text>
             </Pressable>
           </View>
@@ -335,7 +344,14 @@ export default function OfferDetailScreen() {
             </Text>
             <Pressable
               style={styles.aiActionButton}
-              onPress={() => router.push({ pathname: '/ai/interview', params: { offerId: offer.id } } as never)}>
+              onPress={() => {
+                if (normalizedOfferId) {
+                  router.push({
+                    pathname: '/ai/interview',
+                    params: { offerId: normalizedOfferId },
+                  } as never);
+                }
+              }}>
               <Text style={styles.aiActionButtonText}>Préparer mon entretien ➔</Text>
             </Pressable>
           </View>

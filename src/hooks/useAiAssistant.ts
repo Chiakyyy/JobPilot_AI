@@ -9,12 +9,10 @@ import {
 } from '@/types/database';
 
 // This helper parses supabase function error responses into friendly french user messages.
-function parseFunctionError(err: unknown, defaultMessage: string): string {
-  if (!err) {
+function parseFunctionError(rawMessage: string, defaultMessage: string): string {
+  if (!rawMessage) {
     return defaultMessage;
   }
-
-  const rawMessage = err instanceof Error ? err.message : String(err);
 
   if (rawMessage.includes('Ce document ne peut pas être analysé')) {
     return 'Ce document ne peut pas être analysé dans cette version';
@@ -40,7 +38,47 @@ function parseFunctionError(err: unknown, defaultMessage: string): string {
     return 'Connexion réseau indisponible. Veuillez vérifier votre accès à internet.';
   }
 
+  if (rawMessage.includes('non-2xx status code')) {
+    return 'Une erreur est survenue lors de l’appel au service d’intelligence artificielle.';
+  }
+
   return rawMessage || defaultMessage;
+}
+
+// This helper extracts accurate error messages from function execution exceptions and response context.
+async function extractFunctionErrorMessage(err: unknown, defaultMessage: string): Promise<string> {
+  if (!err) {
+    return defaultMessage;
+  }
+
+  let extractedMessage = '';
+
+  if (typeof err === 'object' && err !== null && 'context' in err) {
+    const context = (err as { context?: Response }).context;
+    if (context) {
+      try {
+        const cloned = typeof context.clone === 'function' ? context.clone() : context;
+        try {
+          const bodyJson = await cloned.json();
+          extractedMessage = bodyJson.error || bodyJson.message || '';
+        } catch {
+          const rawText = await cloned.text();
+          if (rawText && rawText.trim().length > 0 && !rawText.trim().startsWith('<')) {
+            extractedMessage = rawText.trim();
+          }
+        }
+      } catch {
+        // Ignore response reading failure.
+      }
+
+      if (!extractedMessage && context.status === 404) {
+        extractedMessage = 'Fonction d’intelligence artificielle non disponible ou non déployée.';
+      }
+    }
+  }
+
+  const rawMessage = extractedMessage || (err instanceof Error ? err.message : String(err));
+  return parseFunctionError(rawMessage, defaultMessage);
 }
 
 // This hook retrieves the remaining daily quota counters for the authenticated user.
@@ -116,24 +154,16 @@ export function useAnalyzeCvOffer() {
       });
 
       if (error) {
-        let errorBodyMessage = '';
-        try {
-          if (typeof error === 'object' && error !== null && 'context' in error) {
-            const context = (error as { context?: Response }).context;
-            if (context && typeof context.json === 'function') {
-              const bodyJson = await context.json();
-              errorBodyMessage = bodyJson.error || '';
-            }
-          }
-        } catch {
-          // Ignore json parsing failures on response context.
-        }
-        const message = parseFunctionError(errorBodyMessage || error, 'Échec de l’analyse du CV et de l’offre.');
+        const message = await extractFunctionErrorMessage(
+          error,
+          'Échec de l’analyse du CV et de l’offre.'
+        );
         throw new Error(message);
       }
 
       if (data?.error) {
-        throw new Error(parseFunctionError(data.error, 'Échec de l’analyse du CV et de l’offre.'));
+        const message = parseFunctionError(data.error, 'Échec de l’analyse du CV et de l’offre.');
+        throw new Error(message);
       }
 
       return data as CvAnalysisResult;
@@ -162,27 +192,19 @@ export function useGenerateInterviewPrep() {
       });
 
       if (error) {
-        let errorBodyMessage = '';
-        try {
-          if (typeof error === 'object' && error !== null && 'context' in error) {
-            const context = (error as { context?: Response }).context;
-            if (context && typeof context.json === 'function') {
-              const bodyJson = await context.json();
-              errorBodyMessage = bodyJson.error || '';
-            }
-          }
-        } catch {
-          // Ignore json parsing failures on response context.
-        }
-        const message = parseFunctionError(
-          errorBodyMessage || error,
+        const message = await extractFunctionErrorMessage(
+          error,
           'Échec de la génération des questions d’entretien.'
         );
         throw new Error(message);
       }
 
       if (data?.error) {
-        throw new Error(parseFunctionError(data.error, 'Échec de la génération des questions d’entretien.'));
+        const message = parseFunctionError(
+          data.error,
+          'Échec de la génération des questions d’entretien.'
+        );
+        throw new Error(message);
       }
 
       return data as InterviewPrepResult;

@@ -268,6 +268,13 @@ Authorized by ownership                   Authorized via EXISTS (applications + 
   - The database table `public.ai_usage_logs` enforces a unique constraint `UNIQUE (user_id, feature, idempotency_key)`.
   - Concurrent requests with the same key are caught immediately, and completed requests return without re-invoking the LLM, protecting backend costs and preventing duplicate quota deductions.
   - Daily limits (3 analyses, 5 interview preparations per user per day) are enforced atomically in PostgreSQL before calling external AI providers. If an AI call fails, the log is marked `'failed'`, safeguarding the user's daily quota.
+- **Caller JWT Forwarding & RLS Propagation in Edge Functions**:
+  - When a Supabase Edge Function queries database tables or Storage buckets protected by Row-Level Security (`job_offers`, `user_cvs`, `storage.objects`), it must instantiate a client that explicitly forwards the caller's incoming `Authorization` header (`global: { headers: { Authorization: authHeader } }`).
+  - Without header forwarding, the client defaults to the anonymous role (`anon`). If `SUPABASE_SERVICE_ROLE_KEY` is not present, queries against tables where `SELECT` requires `auth.role() = 'authenticated'` or `auth.uid() = user_id` return zero rows, resulting in false `404` errors (e.g. `"Offre d'emploi introuvable"`). Forwarding the caller's JWT guarantees that PostgreSQL executes RLS in the authenticated context of the requesting user.
+- **Client-Side `FunctionsHttpError` Body Extraction**:
+  - When `supabase.functions.invoke(...)` receives an HTTP non-2xx status code from an Edge Function, `@supabase/supabase-js` throws a `FunctionsHttpError` whose `.message` property is merely `"Edge Function returned a non-2xx status code"`.
+  - The actual server JSON payload (containing `{ error: "..." }`) is stored inside `error.context`, which wraps the raw Fetch `Response` object.
+  - In `src/hooks/useAiAssistant.ts`, `extractFunctionErrorMessage` clones and inspects `await error.context.json()` (with a `.text()` fallback). This ensures precise, actionable error messages from the backend (`"Offre d'emploi introuvable en base de données"`, `"Aucun CV trouvé. Veuillez d'abord importer votre CV PDF dans votre profil."`, `"Ce document ne peut pas être analysé dans cette version"`, or gateway 404s when undeployed) are surfaced to the user instead of misleading generic errors.
 
 ---
 
