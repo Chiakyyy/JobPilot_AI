@@ -3,7 +3,7 @@
 This document provides a technical overview of the architecture, engineering decisions, and security model implemented in JobPilot AI across:
 - **Step 1 (App Foundation)**: Expo Router, TypeScript configuration, and French-first navigation layout.
 - **Step 2 (Phase P1 / S03–S05)**: Supabase Authentication, Secure Session Persistence (`expo-secure-store`), Profile Management & Row-Level Security (RLS).
-- **Step 3 (Phase P2 / S06–S08)**: Core CRUD, State Management (TanStack Query), LinkedIn-style Shared Marketplace RLS, Dual-Party Applications Workflow, and Dashboard Analytics.
+- **Step 3 (Phase P2 / S06–S08)**: Core CRUD, State Management (TanStack Query), LinkedIn-style Shared Marketplace RLS, Dual-Party Applications Workflow, Recruiter Consultation Tracking, and Dashboard Analytics.
 
 ---
 
@@ -51,7 +51,7 @@ This document provides a technical overview of the architecture, engineering dec
      │ Cache hit (stale-while-revalidate)│ Query / Mutation Execution
      ▼                                  ▼
 [ React Query Cache ]             [ Supabase Client (`src/lib/supabase.ts`) ]
-     │ (Instant UI render)              │ HTTPS REST / PostgREST
+     │ (Instant UI render)              │ HTTPS REST / PostgREST / RPC
      ▼                                  ▼
 [ Mobile UI State ]               [ PostgreSQL Database Engine ]
                                         │
@@ -63,27 +63,22 @@ This document provides a technical overview of the architecture, engineering dec
          - INSERT: auth.uid()  - INSERT: auth.uid()   - INSERT: applicant AND NOT poster
          - UPDATE: auth.uid()  - UPDATE: auth.uid()   - UPDATE: applicant OR poster
          - DELETE: auth.uid()  - DELETE: auth.uid()   - DELETE: applicant only
+                                                      - viewed_by_recruiter_at
 ```
 
-### Marketplace Interactions & Dual-Party Lifecycle
-1. **Browsing Job Offers (`Offres` Tab)**:
-   - Any authenticated user can view all published offers on the platform via `useOffers({ filter: 'all' })`.
-   - Users can toggle the segmented control to `"Mes offres"` (`filter: 'mine'`) to isolate offers they authored.
-   - Each card displays attribution: `"Publiée par vous"` for the author or `"Publiée par [Nom]"` for third-party recruiters.
-2. **Applying to an Offer (Candidate Action)**:
-   - On the Offer Detail screen (`src/app/offers/[id].tsx`), if the viewer is not the creator, the button `"Postuler à cette offre"` is displayed.
-   - If the user is the offer creator, application buttons are hidden, and the database RLS policy (`NOT EXISTS (...)`) forbids self-applications.
-   - Submitting an application creates a row in `public.applications` with initial status `Applied` and records the first entry in `status_history`.
-3. **Reviewing Applicants (Offer Poster Action)**:
-   - When the creator opens `src/app/offers/[id].tsx`, the `"Candidatures reçues"` section loads all applicants via `useOfferApplicants(offerId)`.
-   - Each applicant card displays candidate metadata (`display_name`, `target_role`, `experience_level`, `skills`) joined from `public.profiles`.
-   - Tapping an applicant navigates to `src/app/applications/[id].tsx`.
-4. **Status Progression & Recruiter Debriefing**:
-   - Both the candidate and the offer creator can update the status pill (`Saved`, `Applied`, `Interview`, `Offer`, `Rejected`).
-   - The offer creator can evaluate and transition the candidate through interview rounds; the update mutation appends an audit event to `status_history`.
-   - The mutation automatically invalidates `queryKey: ['applications']`, `['application', id]`, `['offerApplicants', offerId]`, and `['dashboardStats']`.
-5. **Withdrawal (Candidate Only)**:
-   - Only the candidate who applied can delete the application row. The RLS delete policy strictly checks `auth.uid() = user_id`.
+### Recruiter Consultation Flow & Automatic Synchronization
+1. **Recruiter Opens Candidate Application**:
+   - The recruiter (owner of `job_offers`) taps a candidate card on `src/app/offers/[id].tsx` and navigates to `src/app/applications/[id].tsx`.
+   - A `useEffect` detects that the viewer is the offer creator (`offer.user_id === user.id`) and `!application.viewed_by_recruiter_at`.
+2. **Server-Side Idempotent RPC (`mark_application_viewed`)**:
+   - The client invokes `supabase.rpc('mark_application_viewed', { p_application_id })`.
+   - PostgreSQL verifies that `auth.uid()` owns the offer via `JOIN public.job_offers`.
+   - If verified, it sets `viewed_by_recruiter_at = COALESCE(viewed_by_recruiter_at, now())`, preserving the exact initial consultation timestamp.
+3. **Database Consistency Trigger**:
+   - If a recruiter advances a candidate's status without opening the detail screen first, a `BEFORE UPDATE` trigger automatically sets `viewed_by_recruiter_at = COALESCE(NEW.viewed_by_recruiter_at, OLD.viewed_by_recruiter_at, now())`.
+4. **Cache Invalidation & Real-Time Candidate Feedback**:
+   - On success, TanStack Query invalidates `queryKey: ['applications']`, `['application', id]`, and `['dashboardStats']`.
+   - When the candidate opens their app, the **`Vue par le recruteur`** badge appears on the `Accueil` and `Candidatures` tabs, and the detail view displays the exact consultation timestamp.
 
 ---
 
@@ -152,6 +147,18 @@ This document provides a technical overview of the architecture, engineering dec
 - **Explicit Scoping in Client Queries (`.eq('user_id', user.id)`)**:
   - Although RLS allows offer posters to read applications submitted to their offers, the user's personal `Candidatures` tab and `Accueil` dashboard counters must only reflect jobs *they* applied to.
   - Client queries explicitly apply `.eq('user_id', user.id)`. This provides defense-in-depth and precise UI scoping without relying on client-side array filtering.
+
+### Recruiter Viewed Indicator & Idempotent RPCs
+- **Data Modeling: Nullable `timestamptz` vs Boolean**:
+  - Storing a boolean flag (`is_viewed boolean`) requires adding a separate timestamp column (`viewed_at timestamptz`) if timing matters, introducing dual-column synchronization risks.
+  - Storing a single nullable timestamp `viewed_by_recruiter_at timestamptz NULL` provides both boolean status (`Boolean(viewed_by_recruiter_at)`) and the exact audit timestamp in a single source of truth.
+- **Server-Side Actor Enforcement & Idempotency**:
+  - Client-side updates to `viewed_by_recruiter_at` are vulnerable to spoofing if done via direct table update.
+  - The PostgreSQL function `mark_application_viewed(p_application_id uuid)` enforces authorization via `JOIN job_offers WHERE user_id = auth.uid()`.
+  - Using `COALESCE(viewed_by_recruiter_at, now())` guarantees that subsequent opens by the recruiter do not overwrite the timestamp of the first consultation.
+- **UI & Cache Synchronization**:
+  - Invoking `mark_application_viewed` invalidates query keys `['applications']`, `['application', id]`, and `['dashboardStats']`.
+  - When the candidate returns to the app, the viewed status reflects immediately across the `Accueil` activity feed, `Candidatures` tab badges, and `ApplicationDetail` consultation banner.
 
 ---
 
@@ -228,6 +235,18 @@ This document provides a technical overview of the architecture, engineering dec
 > ```
 > Any direct API call attempting self-application is immediately rejected by PostgreSQL with a policy check violation.
 
+### Q11: Why is a nullable timestamp (`timestamptz`) preferred over a boolean flag for tracking read/view status in collaborative workflows?
+> **Answer:**
+> Using a boolean flag (`is_viewed boolean`) creates a lossy abstraction: it answers *whether* an item was seen, but cannot answer *when*. If product requirements later demand displaying "Consultée il y a 2 jours" or calculating recruiter response latency SLAs, a second column (`viewed_at timestamptz`) must be retrofitted, creating consistency hazards where `is_viewed = true` but `viewed_at IS NULL`.
+> A single nullable timestamp (`viewed_by_recruiter_at timestamptz NULL`) elegantly satisfies both needs: `Boolean(viewed_by_recruiter_at)` derives the binary state, while the timestamp provides full auditability and precise UI presentation without redundant columns.
+
+### Q12: How do idempotent RPC functions and database triggers work together to prevent race conditions in consultation tracking?
+> **Answer:**
+> If consultation tracking relies on raw client-side updates (`UPDATE applications SET viewed_by_recruiter_at = now()`), two problems arise:
+> 1. An applicant could maliciously issue the update to fake recruiter interest.
+> 2. Every subsequent open by the recruiter would overwrite the timestamp of the first view.
+> We resolve this through a dedicated RPC function (`mark_application_viewed`) that verifies offer ownership (`JOIN job_offers WHERE user_id = auth.uid()`) and uses `COALESCE(viewed_by_recruiter_at, now())` for idempotency. Furthermore, a `BEFORE UPDATE` database trigger ensures that if a recruiter directly changes candidate status (e.g. from `Applied` to `Interview`) without opening the detail view, `viewed_by_recruiter_at` is automatically populated, keeping application state consistent under all paths.
+
 ---
 
 ## 4. Database Schema Reference
@@ -272,84 +291,58 @@ CREATE TABLE public.applications (
   applied_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
   notes text,
   status_history jsonb NOT NULL DEFAULT '[]'::jsonb,
+  viewed_by_recruiter_at timestamp with time zone DEFAULT null,
   created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
   updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
   CONSTRAINT unique_user_offer UNIQUE (user_id, offer_id)
 );
 
--- Profiles Marketplace Policies
-CREATE POLICY "authenticated users can view profiles"
-  ON public.profiles FOR SELECT TO authenticated
-  USING (auth.role() = 'authenticated');
+-- Consultation RPC Function
+CREATE OR REPLACE FUNCTION public.mark_application_viewed(p_application_id uuid)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public
+AS $$
+DECLARE
+  v_is_authorized boolean;
+BEGIN
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.applications a
+    JOIN public.job_offers o ON o.id = a.offer_id
+    WHERE a.id = p_application_id AND o.user_id = auth.uid()
+  ) INTO v_is_authorized;
 
-CREATE POLICY "users can insert their own profile"
-  ON public.profiles FOR INSERT TO authenticated
-  WITH CHECK (auth.uid() = id);
+  IF NOT v_is_authorized THEN
+    RETURN false;
+  END IF;
 
-CREATE POLICY "users can update their own profile"
-  ON public.profiles FOR UPDATE TO authenticated
-  USING (auth.uid() = id);
+  UPDATE public.applications
+  SET viewed_by_recruiter_at = COALESCE(viewed_by_recruiter_at, now())
+  WHERE id = p_application_id;
 
-CREATE POLICY "users can delete their own profile"
-  ON public.profiles FOR DELETE TO authenticated
-  USING (auth.uid() = id);
+  RETURN true;
+END;
+$$;
 
--- Job Offers Marketplace Policies
-CREATE POLICY "authenticated users can view all job offers"
-  ON public.job_offers FOR SELECT TO authenticated
-  USING (auth.role() = 'authenticated');
+-- Consultation Status Consistency Trigger
+CREATE OR REPLACE FUNCTION public.handle_application_viewed_on_status_change()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF NEW.status IS DISTINCT FROM OLD.status THEN
+    NEW.viewed_by_recruiter_at = COALESCE(NEW.viewed_by_recruiter_at, OLD.viewed_by_recruiter_at, now());
+  END IF;
+  RETURN NEW;
+END;
+$$;
 
-CREATE POLICY "users can insert their own job offers"
-  ON public.job_offers FOR INSERT TO authenticated
-  WITH CHECK (auth.uid() = user_id);
-
-CREATE POLICY "users can update their own job offers"
-  ON public.job_offers FOR UPDATE TO authenticated
-  USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
-
-CREATE POLICY "users can delete their own job offers"
-  ON public.job_offers FOR DELETE TO authenticated
-  USING (auth.uid() = user_id);
-
--- Applications Dual-Party Marketplace Policies
-CREATE POLICY "candidates and offer owners can view applications"
-  ON public.applications FOR SELECT TO authenticated
-  USING (
-    auth.uid() = user_id
-    OR EXISTS (
-      SELECT 1 FROM public.job_offers
-      WHERE job_offers.id = applications.offer_id AND job_offers.user_id = auth.uid()
-    )
-  );
-
-CREATE POLICY "candidates can apply to offers from other users"
-  ON public.applications FOR INSERT TO authenticated
-  WITH CHECK (
-    auth.uid() = user_id
-    AND NOT EXISTS (
-      SELECT 1 FROM public.job_offers
-      WHERE job_offers.id = applications.offer_id AND job_offers.user_id = auth.uid()
-    )
-  );
-
-CREATE POLICY "candidates and offer owners can update applications"
-  ON public.applications FOR UPDATE TO authenticated
-  USING (
-    auth.uid() = user_id
-    OR EXISTS (
-      SELECT 1 FROM public.job_offers
-      WHERE job_offers.id = applications.offer_id AND job_offers.user_id = auth.uid()
-    )
-  )
-  WITH CHECK (
-    auth.uid() = user_id
-    OR EXISTS (
-      SELECT 1 FROM public.job_offers
-      WHERE job_offers.id = applications.offer_id AND job_offers.user_id = auth.uid()
-    )
-  );
-
-CREATE POLICY "candidates can delete their own applications"
-  ON public.applications FOR DELETE TO authenticated
-  USING (auth.uid() = user_id);
+DROP TRIGGER IF EXISTS set_application_viewed_on_status_update ON public.applications;
+CREATE TRIGGER set_application_viewed_on_status_update
+  BEFORE UPDATE ON public.applications
+  FOR EACH ROW EXECUTE FUNCTION public.handle_application_viewed_on_status_change();
 ```

@@ -1,5 +1,6 @@
+import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -25,7 +26,7 @@ const STATUS_OPTIONS: { label: string; value: ApplicationStatus; color: string; 
   { label: 'Refusée', value: 'Rejected', color: '#DC2626', bg: '#FEF2F2' },
 ];
 
-// This screen presents complete application details, dual-role status updates and applicant summary.
+// This screen presents complete application details, dual-role status updates and recruiter consultation tracking.
 export default function ApplicationDetailScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -36,6 +37,7 @@ export default function ApplicationDetailScreen() {
     updateStatus,
     updateNotes,
     deleteApplication,
+    markViewed,
     isUpdatingStatus,
     isUpdatingNotes,
     isDeleting,
@@ -48,6 +50,22 @@ export default function ApplicationDetailScreen() {
 
   const [notes, setNotes] = useState<string>('');
   const [notesSavedNotice, setNotesSavedNotice] = useState<boolean>(false);
+  const markedViewedRef = useRef<boolean>(false);
+
+  // This effect automatically records recruiter consultation when the offer poster opens the application.
+  useEffect(() => {
+    if (
+      isOfferPoster &&
+      application?.id &&
+      !application.viewed_by_recruiter_at &&
+      !markedViewedRef.current
+    ) {
+      markedViewedRef.current = true;
+      markViewed({ applicationId: application.id }).catch((err) => {
+        console.error('Failed to mark application as viewed', err);
+      });
+    }
+  }, [isOfferPoster, application?.id, application?.viewed_by_recruiter_at, markViewed]);
 
   // This effect syncs local notes state with the loaded application record.
   useEffect(() => {
@@ -167,6 +185,66 @@ export default function ApplicationDetailScreen() {
             <Text style={styles.viewOfferButtonText}>Consulter la fiche offre ↗</Text>
           </Pressable>
         </View>
+
+        {isApplicant && (
+          <View
+            style={[
+              styles.recruiterStatusCard,
+              application.viewed_by_recruiter_at
+                ? styles.recruiterStatusCardViewed
+                : styles.recruiterStatusCardPending,
+            ]}>
+            <Ionicons
+              name={application.viewed_by_recruiter_at ? 'eye-outline' : 'time-outline'}
+              size={20}
+              color={application.viewed_by_recruiter_at ? '#059669' : '#D97706'}
+              style={styles.recruiterStatusIcon}
+            />
+            <View style={styles.recruiterStatusTextContainer}>
+              <Text
+                style={[
+                  styles.recruiterStatusTitle,
+                  { color: application.viewed_by_recruiter_at ? '#065F46' : '#92400E' },
+                ]}>
+                {application.viewed_by_recruiter_at
+                  ? 'Candidature consultée par le recruteur'
+                  : 'En attente de consultation par le recruteur'}
+              </Text>
+              {application.viewed_by_recruiter_at ? (
+                <Text style={styles.recruiterStatusDate}>
+                  Consultée le{' '}
+                  {new Date(application.viewed_by_recruiter_at).toLocaleString('fr-FR', {
+                    day: 'numeric',
+                    month: 'long',
+                    year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
+                </Text>
+              ) : (
+                <Text style={styles.recruiterStatusSubtitle}>
+                  Le recruteur n’a pas encore ouvert votre dossier de candidature.
+                </Text>
+              )}
+            </View>
+          </View>
+        )}
+
+        {isOfferPoster && application.viewed_by_recruiter_at && (
+          <View style={styles.posterConsultedBanner}>
+            <Ionicons name="eye-outline" size={14} color="#059669" style={{ marginRight: 6 }} />
+            <Text style={styles.posterConsultedText}>
+              Consultée par vous le{' '}
+              {new Date(application.viewed_by_recruiter_at).toLocaleString('fr-FR', {
+                day: 'numeric',
+                month: 'short',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+              })}
+            </Text>
+          </View>
+        )}
 
         {isOfferPoster && (
           <View style={styles.sectionCard}>
@@ -452,6 +530,58 @@ const styles = StyleSheet.create({
   viewOfferButtonText: {
     color: '#2563EB',
     fontSize: 13,
+    fontWeight: '600',
+  },
+  recruiterStatusCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+  },
+  recruiterStatusCardViewed: {
+    backgroundColor: '#ECFDF5',
+    borderColor: '#A7F3D0',
+  },
+  recruiterStatusCardPending: {
+    backgroundColor: '#FFFBEB',
+    borderColor: '#FDE68A',
+  },
+  recruiterStatusIcon: {
+    marginRight: 10,
+    alignSelf: 'flex-start',
+    marginTop: 2,
+  },
+  recruiterStatusTextContainer: {
+    flex: 1,
+  },
+  recruiterStatusTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  recruiterStatusDate: {
+    fontSize: 12,
+    color: '#047857',
+    fontWeight: '500',
+  },
+  recruiterStatusSubtitle: {
+    fontSize: 12,
+    color: '#B45309',
+  },
+  posterConsultedBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ECFDF5',
+    borderColor: '#A7F3D0',
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  posterConsultedText: {
+    fontSize: 12,
+    color: '#059669',
     fontWeight: '600',
   },
   sectionCard: {

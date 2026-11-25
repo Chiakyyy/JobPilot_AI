@@ -1,3 +1,4 @@
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
@@ -36,7 +37,7 @@ const STATUS_CONFIG: Record<ApplicationStatus, { label: string; bg: string; text
   Rejected: { label: 'Refusée', bg: '#FEF2F2', text: '#DC2626' },
 };
 
-// This screen presents candidate applications with status filters and progression cards.
+// This screen presents candidate applications with status filters, progression cards and consultation badges.
 export default function ApplicationsScreen() {
   const router = useRouter();
   const [selectedStatus, setSelectedStatus] = useState<string>('All');
@@ -58,7 +59,7 @@ export default function ApplicationsScreen() {
     router.push(`/applications/${id}` as never);
   };
 
-  // This function renders an individual application card.
+  // This function renders an individual application card with recruiter consultation status.
   const renderItem = ({ item }: { item: Application }) => {
     const config = STATUS_CONFIG[item.status] || STATUS_CONFIG.Applied;
     const formattedDate = new Date(item.applied_at).toLocaleDateString('fr-FR', {
@@ -66,13 +67,34 @@ export default function ApplicationsScreen() {
       month: 'short',
       year: 'numeric',
     });
+    const isViewed = Boolean(item.viewed_by_recruiter_at);
+    const viewedDate = item.viewed_by_recruiter_at
+      ? new Date(item.viewed_by_recruiter_at).toLocaleDateString('fr-FR', {
+          day: 'numeric',
+          month: 'short',
+        })
+      : null;
 
     return (
       <Pressable style={styles.card} onPress={() => handleSelectApplication(item.id)}>
         <View style={styles.cardTopRow}>
           <Text style={styles.companyName}>{item.offer?.company || 'Entreprise'}</Text>
-          <View style={[styles.statusBadge, { backgroundColor: config.bg }]}>
-            <Text style={[styles.statusText, { color: config.text }]}>{config.label}</Text>
+          <View style={styles.badgeGroup}>
+            {isViewed ? (
+              <View style={styles.viewedBadge}>
+                <Ionicons name="eye-outline" size={13} color="#059669" style={styles.viewedIcon} />
+                <Text style={styles.viewedBadgeText}>
+                  Vue par le recruteur{viewedDate ? ` (${viewedDate})` : ''}
+                </Text>
+              </View>
+            ) : (
+              <View style={styles.unviewedBadge}>
+                <Text style={styles.unviewedBadgeText}>Non consultée</Text>
+              </View>
+            )}
+            <View style={[styles.statusBadge, { backgroundColor: config.bg }]}>
+              <Text style={[styles.statusText, { color: config.text }]}>{config.label}</Text>
+            </View>
           </View>
         </View>
 
@@ -186,7 +208,7 @@ export default function ApplicationsScreen() {
   );
 }
 
-// This stylesheet defines display parameters for the applications tracking tab.
+// This stylesheet defines display parameters for the candidatures list screen.
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -203,10 +225,10 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   filterChip: {
-    backgroundColor: '#F1F5F9',
-    borderRadius: 20,
     paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingVertical: 7,
+    borderRadius: 20,
+    backgroundColor: '#F1F5F9',
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
@@ -215,12 +237,13 @@ const styles = StyleSheet.create({
     borderColor: '#2563EB',
   },
   filterChipText: {
-    color: '#475569',
     fontSize: 13,
-    fontWeight: '600',
+    fontWeight: '500',
+    color: '#475569',
   },
   filterChipTextActive: {
     color: '#FFFFFF',
+    fontWeight: '600',
   },
   listContent: {
     padding: 16,
@@ -243,18 +266,58 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 6,
+    marginBottom: 8,
+    gap: 8,
   },
   companyName: {
     fontSize: 13,
-    fontWeight: '700',
-    color: '#2563EB',
+    fontWeight: '600',
+    color: '#64748B',
     textTransform: 'uppercase',
+    flex: 1,
+  },
+  badgeGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+  },
+  viewedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ECFDF5',
+    borderColor: '#A7F3D0',
+    borderWidth: 1,
+    borderRadius: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+  },
+  viewedIcon: {
+    marginRight: 3,
+  },
+  viewedBadgeText: {
+    color: '#059669',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  unviewedBadge: {
+    backgroundColor: '#F8FAFC',
+    borderColor: '#E2E8F0',
+    borderWidth: 1,
+    borderRadius: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+  },
+  unviewedBadgeText: {
+    color: '#64748B',
+    fontSize: 11,
+    fontWeight: '500',
   },
   statusBadge: {
+    paddingHorizontal: 9,
+    paddingVertical: 3,
     borderRadius: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
   },
   statusText: {
     fontSize: 12,
@@ -264,11 +327,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     color: '#0F172A',
-    marginBottom: 4,
+    marginBottom: 6,
   },
   locationText: {
     fontSize: 13,
-    color: '#64748B',
+    color: '#475569',
     marginBottom: 10,
   },
   cardFooter: {
@@ -277,14 +340,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderTopWidth: 1,
     borderTopColor: '#F1F5F9',
-    paddingTop: 8,
+    paddingTop: 10,
+    marginTop: 4,
   },
   dateText: {
     fontSize: 12,
     color: '#94A3B8',
   },
   chevronText: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '600',
     color: '#2563EB',
   },

@@ -137,10 +137,37 @@ export function useOfferApplicants(offerId: string | undefined) {
   });
 }
 
+// This hook provides a mutation to mark an application as viewed by the recruiter.
+export function useMarkApplicationViewed() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ applicationId }: { applicationId: string }) => {
+      const { data, error } = await supabase.rpc('mark_application_viewed', {
+        p_application_id: applicationId,
+      });
+
+      if (error) {
+        throw error;
+      }
+      return data;
+    },
+    onSuccess: (_data, { applicationId }) => {
+      queryClient.invalidateQueries({ queryKey: ['applications'] });
+      queryClient.invalidateQueries({ queryKey: ['application', applicationId] });
+      queryClient.invalidateQueries({ queryKey: ['dashboardStats'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['offerApplicants'] });
+      queryClient.invalidateQueries({ queryKey: ['offer-applicants'] });
+    },
+  });
+}
+
 // This hook provides mutations to create, transition and update job applications.
 export function useApplicationMutations() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
+  const markViewedMutation = useMarkApplicationViewed();
 
   // This mutation creates a new application linking an existing job offer.
   const createMutation = useMutation({
@@ -189,7 +216,7 @@ export function useApplicationMutations() {
 
       const { data: currentApp, error: fetchError } = await supabase
         .from('applications')
-        .select('status_history, offer_id')
+        .select('status_history, offer_id, viewed_by_recruiter_at')
         .eq('id', id)
         .single();
 
@@ -211,6 +238,7 @@ export function useApplicationMutations() {
         .update({
           status: newStatus,
           status_history: nextHistory,
+          viewed_by_recruiter_at: currentApp?.viewed_by_recruiter_at || new Date().toISOString(),
           updated_at: new Date().toISOString(),
         })
         .eq('id', id)
@@ -294,9 +322,11 @@ export function useApplicationMutations() {
     updateStatus: updateStatusMutation.mutateAsync,
     updateNotes: updateNotesMutation.mutateAsync,
     deleteApplication: deleteMutation.mutateAsync,
+    markViewed: markViewedMutation.mutateAsync,
     isCreating: createMutation.isPending,
     isUpdatingStatus: updateStatusMutation.isPending,
     isUpdatingNotes: updateNotesMutation.isPending,
     isDeleting: deleteMutation.isPending,
+    isMarkingViewed: markViewedMutation.isPending,
   };
 }

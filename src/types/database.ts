@@ -57,6 +57,7 @@ export interface Application {
   applied_at: string;
   notes: string | null;
   status_history: StatusHistoryItem[];
+  viewed_by_recruiter_at: string | null;
   created_at: string;
   updated_at: string;
   offer?: Pick<JobOffer, 'id' | 'title' | 'company' | 'location' | 'user_id'> | null;

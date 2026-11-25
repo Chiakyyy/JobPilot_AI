@@ -1,3 +1,4 @@
+import { Ionicons } from '@expo/vector-icons';
 import { Link, useRouter } from 'expo-router';
 import React from 'react';
 import {
@@ -22,7 +23,7 @@ const STATUS_LABELS: Record<ApplicationStatus, { label: string; color: string; b
   Rejected: { label: 'Refusée', color: '#DC2626', bg: '#FEF2F2' },
 };
 
-// This screen presents the candidate overview dashboard with application metrics and quick actions.
+// This screen presents the candidate overview dashboard with application metrics, recruiter view alerts and quick actions.
 export default function HomeScreen() {
   const router = useRouter();
   const { user, profile } = useAuth();
@@ -133,6 +134,7 @@ export default function HomeScreen() {
                 day: 'numeric',
                 month: 'short',
               });
+              const isViewed = Boolean(app.viewed_by_recruiter_at);
 
               return (
                 <Pressable
@@ -144,6 +146,17 @@ export default function HomeScreen() {
                     <Text style={styles.recentTitle} numberOfLines={1}>
                       {app.offer?.title || 'Poste'}
                     </Text>
+                    {isViewed && (
+                      <View style={styles.viewedCompactBadge}>
+                        <Ionicons
+                          name="eye-outline"
+                          size={11}
+                          color="#059669"
+                          style={styles.viewedCompactIcon}
+                        />
+                        <Text style={styles.viewedCompactText}>Vue par le recruteur</Text>
+                      </View>
+                    )}
                   </View>
                   <View style={styles.recentCardRight}>
                     <View style={[styles.recentStatusBadge, { backgroundColor: config.bg }]}>
@@ -189,26 +202,25 @@ const styles = StyleSheet.create({
   greeting: {
     fontSize: 22,
     fontWeight: '700',
-    color: '#2563EB',
+    color: '#0F172A',
     marginBottom: 6,
   },
   tagline: {
     fontSize: 14,
-    color: '#475569',
+    color: '#64748B',
     lineHeight: 20,
     marginBottom: 16,
   },
   actionRow: {
     flexDirection: 'row',
-    gap: 10,
+    gap: 12,
   },
   primaryActionButton: {
-    backgroundColor: '#2563EB',
-    borderRadius: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    alignItems: 'center',
     flex: 1,
+    backgroundColor: '#2563EB',
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
   },
   primaryActionButtonText: {
     color: '#FFFFFF',
@@ -216,13 +228,11 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   secondaryActionButton: {
+    flex: 1,
     backgroundColor: '#EFF6FF',
-    borderRadius: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
+    borderRadius: 10,
+    paddingVertical: 12,
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#BFDBFE',
   },
   secondaryActionButtonText: {
     color: '#2563EB',
@@ -232,15 +242,15 @@ const styles = StyleSheet.create({
   section: {
     gap: 12,
   },
-  sectionHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
   sectionTitle: {
     fontSize: 17,
     fontWeight: '700',
     color: '#0F172A',
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   seeAllText: {
     fontSize: 13,
@@ -249,9 +259,9 @@ const styles = StyleSheet.create({
   },
   loadingBox: {
     padding: 24,
-    alignItems: 'center',
     backgroundColor: '#FFFFFF',
-    borderRadius: 12,
+    borderRadius: 14,
+    alignItems: 'center',
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
@@ -261,27 +271,28 @@ const styles = StyleSheet.create({
     color: '#64748B',
   },
   errorBox: {
-    padding: 16,
+    padding: 20,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
     alignItems: 'center',
-    backgroundColor: '#FEF2F2',
-    borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#F87171',
+    borderColor: '#FEE2E2',
   },
   errorText: {
-    color: '#B91C1C',
     fontSize: 13,
-    marginBottom: 8,
+    color: '#DC2626',
+    textAlign: 'center',
+    marginBottom: 12,
   },
   retryButton: {
     backgroundColor: '#2563EB',
-    borderRadius: 6,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
   },
   retryButtonText: {
     color: '#FFFFFF',
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '600',
   },
   statsGrid: {
@@ -290,21 +301,20 @@ const styles = StyleSheet.create({
   statCardHighlight: {
     backgroundColor: '#2563EB',
     borderRadius: 14,
-    padding: 16,
+    padding: 18,
     alignItems: 'center',
   },
   statHighlightValue: {
     fontSize: 32,
     fontWeight: '800',
     color: '#FFFFFF',
-    marginBottom: 2,
   },
   statHighlightLabel: {
     fontSize: 13,
     fontWeight: '600',
     color: '#DBEAFE',
+    marginTop: 2,
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
   },
   statRow: {
     flexDirection: 'row',
@@ -316,15 +326,17 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 6,
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   statBadgeValue: {
     fontSize: 18,
     fontWeight: '700',
-    marginBottom: 2,
   },
   statBadgeLabel: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '600',
+    marginTop: 2,
     textAlign: 'center',
   },
   emptyCard: {
@@ -336,11 +348,11 @@ const styles = StyleSheet.create({
     borderColor: '#E2E8F0',
   },
   emptyIcon: {
-    fontSize: 36,
+    fontSize: 32,
     marginBottom: 8,
   },
   emptyTitle: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '600',
     color: '#0F172A',
     marginBottom: 4,
@@ -396,6 +408,26 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: '#0F172A',
+  },
+  viewedCompactBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ECFDF5',
+    borderColor: '#A7F3D0',
+    borderWidth: 1,
+    borderRadius: 5,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    marginTop: 4,
+    alignSelf: 'flex-start',
+  },
+  viewedCompactIcon: {
+    marginRight: 3,
+  },
+  viewedCompactText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#059669',
   },
   recentCardRight: {
     alignItems: 'flex-end',
