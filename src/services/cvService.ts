@@ -35,7 +35,7 @@ async function readFileAsArrayBuffer(uri: string): Promise<ArrayBuffer> {
   }
 }
 
-// This function verifies the magic byte signature and inspects selectable text markers.
+// This function verifies the magic byte signature and guards against encrypted pdf files.
 export function validatePdfBinary(arrayBuffer: ArrayBuffer): void {
   const bytes = new Uint8Array(arrayBuffer);
 
@@ -54,20 +54,26 @@ export function validatePdfBinary(arrayBuffer: ArrayBuffer): void {
     throw new Error('Le fichier sélectionné n’est pas un document PDF valide.');
   }
 
-  let textSample = '';
+  // Full flatedecode decompression and selectable text verification are enforced in the step 5 deno edge function using a server pdf parser. This avoids false negatives on modern compressed pdf streams and keeps the mobile interface responsive.
   const step = 8192;
-  const maxScanBytes = Math.min(bytes.length, 524288);
-  for (let i = 0; i < maxScanBytes; i += step) {
-    const end = Math.min(i + step, maxScanBytes);
+  const tailSize = Math.min(bytes.length, 131072);
+  const tailStart = bytes.length - tailSize;
+  let trailerSample = '';
+  for (let i = tailStart; i < bytes.length; i += step) {
+    const end = Math.min(i + step, bytes.length);
     const slice = bytes.subarray(i, end);
-    textSample += String.fromCharCode.apply(null, Array.from(slice));
+    trailerSample += String.fromCharCode.apply(null, Array.from(slice));
   }
 
-  const hasFontMarker = /\/Font\b|\/Type\s*\/Font\b/i.test(textSample);
-  const hasTextOperators = /\bBT\b/i.test(textSample) || /\b(Tj|TJ)\b/.test(textSample);
+  const headSize = Math.min(bytes.length, 65536);
+  let headSample = '';
+  for (let i = 0; i < headSize; i += step) {
+    const end = Math.min(i + step, headSize);
+    headSample += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, end)));
+  }
 
-  if (!hasFontMarker && !hasTextOperators) {
-    throw new Error('Ce document ne peut pas être analysé dans cette version');
+  if (/\/Encrypt\b/i.test(trailerSample) || /\/Encrypt\b/i.test(headSample)) {
+    throw new Error('Les fichiers PDF protégés par mot de passe ne sont pas pris en charge.');
   }
 }
 
@@ -82,8 +88,13 @@ export function validateCvMetadata(fileName: string, sizeBytes?: number, mimeTyp
     throw new Error('Seuls les fichiers au format PDF sont acceptés.');
   }
 
-  if (sizeBytes !== undefined && sizeBytes > MAX_CV_SIZE_BYTES) {
-    throw new Error('Le fichier dépasse la limite maximale de 5 Mo.');
+  if (sizeBytes !== undefined) {
+    if (sizeBytes <= 0) {
+      throw new Error('Le fichier sélectionné est vide.');
+    }
+    if (sizeBytes > MAX_CV_SIZE_BYTES) {
+      throw new Error('Le fichier dépasse la limite maximale de 5 Mo.');
+    }
   }
 }
 
@@ -115,6 +126,9 @@ export const cvService = {
     validatePdfBinary(arrayBuffer);
 
     const finalSize = asset.size || arrayBuffer.byteLength;
+    if (finalSize <= 0) {
+      throw new Error('Le fichier sélectionné est vide.');
+    }
     if (finalSize > MAX_CV_SIZE_BYTES) {
       throw new Error('Le fichier dépasse la limite maximale de 5 Mo.');
     }

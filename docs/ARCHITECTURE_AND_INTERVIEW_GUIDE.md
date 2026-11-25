@@ -75,9 +75,10 @@ This document provides a technical overview of the architecture, engineering dec
           ▼
 [ Client-Side Validation (`src/services/cvService.ts`) ]
 - Extension & MIME: .pdf / application/pdf
-- Size limit: <= 5 Mo (5,242,880 bytes)
+- Size bounds: > 0 and <= 5 Mo (5,242,880 bytes)
 - Magic Header: 0x25 0x50 0x44 0x46 0x2D (%PDF-)
-- Structure Scan: /Font and text stream operators (rejects image scans)
+- Encryption Guard: uncompressed trailer scan (/Encrypt)
+- Server boundary: FlateDecode decompression & text verification deferred to Step 5 Deno Edge Function
           │ (Binary ArrayBuffer)
           ▼
 [ Supabase Private Storage (`cvs` bucket) ]
@@ -171,11 +172,18 @@ Authorized by ownership                   Authorized via EXISTS (applications + 
   - Resumes (CVs) contain sensitive Personally Identifiable Information (PII) including full names, physical addresses, phone numbers, email addresses, and employment timelines.
   - Storing CVs in public cloud buckets creates permanent publicly indexable URLs that cannot be revoked or audited.
   - Our architecture marks the `cvs` bucket as private (`public = false`) and enforces strict RLS on `storage.objects`. Document access requires generating short-lived signed URLs (`createSignedUrl` with 300 seconds TTL). The signed tokens expire automatically, eliminating permanent exposure.
-- **Defense-in-Depth File Validation (Magic Bytes & Scanned-PDF Detection)**:
+- **Defense-in-Depth File Validation (Client-Side Guards vs Server-Side Decompression)**:
   - Checking file extension (`.pdf`) or browser-reported MIME types (`application/pdf`) is trivial to spoof by simply renaming an executable or image file.
-  - In `src/services/cvService.ts`, validation inspects the binary `ArrayBuffer` directly:
-    1. **Magic Header Check**: Confirms that byte offsets 0 through 4 strictly match `%PDF-` (`0x25 0x50 0x44 0x46 0x2D`).
-    2. **Scanned Image Detection**: Parses structural markers in the PDF content stream looking for font definitions (`/Font`, `/Type /Font`) and text rendering operators (`BT`, `ET`, `Tj`, `TJ`). Pure raster scans lacking selectable text are rejected immediately with the exact PRD message: `"Ce document ne peut pas être analysé dans cette version"`. This protects future AI parsing pipelines from wasting inference tokens on unreadable scans.
+  - In `src/services/cvService.ts`, client-side validation executes deterministic, lightweight checks directly on the binary `ArrayBuffer` without blocking the mobile UI thread:
+    1. **Magic Header Check**: Confirms byte offsets 0 through 4 strictly match `%PDF-` (`0x25 0x50 0x44 0x46 0x2D`). Any renamed non-PDF file is rejected immediately with `"Le fichier sélectionné n’est pas un document PDF valide."`.
+    2. **File Size Bounds**: Enforces `size > 0` and `size <= 5,242,880` bytes (5 Mo maximum), preventing empty files and oversized payloads.
+    3. **Encryption Guard**: Scans uncompressed trailer and cross-reference dictionaries for `/Encrypt`. Password-protected PDFs are rejected immediately with `"Les fichiers PDF protégés par mot de passe ne sont pas pris en charge."`.
+  - **Why Naive Client-Side Byte Scanning Fails on Modern PDFs**:
+    - Under the PDF 1.5+ specification, modern document compilers (`pdflatex`, Microsoft Word, Google Docs) compress page content streams, font dictionaries (`/Font`), and cross-reference tables using `FlateDecode` and object streams (`/ObjStm`). Plain ASCII byte scans for `/Font` or text operators (`BT`, `Tj`) fail completely on valid compressed documents, generating false negatives (valid candidate CVs wrongly rejected).
+    - Conversely, raw binary image streams (JPEG/PNG) in scanned PDFs can randomly contain byte sequences matching `BT`, causing unparseable image-only scans to slip through (false positives).
+  - **Client vs Server Architectural Split**:
+    - Running full `zlib`/`pako` decompression and PDF object tree reconstruction on the React Native JavaScript thread would introduce significant frame drops and memory pressure on mobile devices.
+    - Full `FlateDecode` decompression and selectable-text verification are deferred to the Step 5 backend Supabase Deno Edge Function using a spec-compliant PDF parser (`unpdf` / `pdf-parse`). The server verifies text extraction and rejects image-only scans with the PRD message: `"Ce document ne peut pas être analysé dans cette version"` before passing text to the LLM scoring pipeline.
 - **Preventing Orphan Storage Objects**:
   - In cloud systems, distributed transactions between SQL databases and blob storage buckets do not exist natively.
   - We employ an atomic sequence with rollback:
@@ -273,10 +281,14 @@ Authorized by ownership                   Authorized via EXISTS (applications + 
 
 ### Q14: How do you perform defense-in-depth file validation in React Native to prevent spoofed files and unparseable scans?
 > **Answer:**
-> File extensions and MIME types sent by client pickers can be easily spoofed or misreported. To defend against malicious or corrupt uploads, our service:
-> 1. Verifies the file extension is `.pdf` and size does not exceed 5 Mo.
-> 2. Reads the initial file bytes via `expo-file-system` / `ArrayBuffer` and verifies the `%PDF-` magic header (`0x25 0x50 0x44 0x46 0x2D`).
-> 3. Scans the binary content stream for font dictionaries (`/Font`) and text rendering operators (`BT`, `Tj`, `TJ`). If the file is an image-only scan lacking selectable text, it is rejected immediately with `"Ce document ne peut pas être analysé dans cette version"`, saving server storage and avoiding downstream LLM parsing failures.
+> File extensions and MIME types sent by client pickers can be easily spoofed or misreported. To defend against malicious or corrupt uploads while maintaining optimal mobile performance, our architecture implements a two-tier defense:
+> 1. **Client-Side Validation (`src/services/cvService.ts`)**:
+>    - Verifies file extension (`.pdf`), MIME type, and size bounds (`size > 0` and `size <= 5 Mo`).
+>    - Validates the `%PDF-` magic byte header (`0x25 0x50 0x44 0x46 0x2D`) to block renamed binaries immediately (`"Le fichier sélectionné n’est pas un document PDF valide."`).
+>    - Inspects the uncompressed trailer dictionary for `/Encrypt` to reject password-protected documents without full decompression (`"Les fichiers PDF protégés par mot de passe ne sont pas pris en charge."`).
+> 2. **Server-Side Decompression & Scanned-PDF Detection (Step 5 Deno Edge Function)**:
+>    - Naive raw-byte heuristics (searching for `/Font` or `BT`) fail on modern PDFs because PDF 1.5+ generators (`pdflatex`, Word) compress content streams with `FlateDecode` and `/ObjStm`, while raster image streams can produce false byte collisions.
+>    - Full stream decompression and text layer verification are therefore delegated to the backend Supabase Deno Edge Function using a spec-compliant PDF parser (`unpdf` / `pdf-parse`). Scanned image-only PDFs lacking selectable text are rejected with `"Ce document ne peut pas être analysé dans cette version"`, saving AI inference tokens without blocking the mobile UI thread.
 
 ### Q15: How do you achieve consistency and avoid orphan files between cloud object storage and a SQL database?
 > **Answer:**
