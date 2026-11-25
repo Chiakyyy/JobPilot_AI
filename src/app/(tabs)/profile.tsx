@@ -1,3 +1,4 @@
+import { Ionicons } from '@expo/vector-icons';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
@@ -16,6 +17,7 @@ import {
 } from 'react-native';
 
 import { useAuth } from '@/context/AuthContext';
+import { useUserCv } from '@/hooks/useCv';
 import { supabase } from '@/lib/supabase';
 import { ProfileFormData, profileSchema } from '@/lib/validations/auth';
 import { Profile } from '@/types/database';
@@ -24,6 +26,7 @@ import { Profile } from '@/types/database';
 export default function ProfileScreen() {
   const router = useRouter();
   const { user, signOut, refreshProfile } = useAuth();
+  const { data: userCv } = useUserCv();
 
   const [loading, setLoading] = useState<boolean>(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -228,6 +231,32 @@ export default function ProfileScreen() {
                 <Text style={styles.errorBannerText}>{saveError}</Text>
               </View>
             )}
+
+            <Pressable style={styles.cvCard} onPress={() => router.push('/cv' as never)}>
+              <View style={styles.cvCardLeft}>
+                <View style={styles.cvIconBox}>
+                  <Ionicons name="document-text" size={24} color="#2563EB" />
+                </View>
+                <View style={styles.cvInfo}>
+                  <Text style={styles.cvCardTitle}>Gérer mon CV (PDF)</Text>
+                  <Text style={styles.cvCardSubtitle} numberOfLines={1}>
+                    {userCv ? userCv.file_name : 'Format PDF • Max 5 Mo • Privé'}
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.cvCardRight}>
+                {userCv ? (
+                  <View style={styles.cvBadgeImported}>
+                    <Text style={styles.cvBadgeImportedText}>CV importé</Text>
+                  </View>
+                ) : (
+                  <View style={styles.cvBadgeEmpty}>
+                    <Text style={styles.cvBadgeEmptyText}>Aucun CV</Text>
+                  </View>
+                )}
+                <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
+              </View>
+            </Pressable>
 
             <View style={styles.formCard}>
               <Text style={styles.sectionTitle}>Informations principales</Text>
@@ -609,6 +638,80 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.05,
     shadowRadius: 8,
     elevation: 2,
+  },
+  cvCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  cvCardLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+    marginRight: 10,
+  },
+  cvIconBox: {
+    width: 44,
+    height: 44,
+    borderRadius: 10,
+    backgroundColor: '#EFF6FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cvInfo: {
+    flex: 1,
+  },
+  cvCardTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  cvCardSubtitle: {
+    fontSize: 12,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  cvCardRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  cvBadgeImported: {
+    backgroundColor: '#ECFDF5',
+    borderColor: '#A7F3D0',
+    borderWidth: 1,
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  cvBadgeImportedText: {
+    color: '#059669',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  cvBadgeEmpty: {
+    backgroundColor: '#F1F5F9',
+    borderColor: '#E2E8F0',
+    borderWidth: 1,
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  cvBadgeEmptyText: {
+    color: '#64748B',
+    fontSize: 11,
+    fontWeight: '500',
   },
   accountTitle: {
     fontSize: 14,

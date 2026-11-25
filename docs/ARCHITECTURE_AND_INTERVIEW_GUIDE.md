@@ -4,6 +4,7 @@ This document provides a technical overview of the architecture, engineering dec
 - **Step 1 (App Foundation)**: Expo Router, TypeScript configuration, and French-first navigation layout.
 - **Step 2 (Phase P1 / S03–S05)**: Supabase Authentication, Secure Session Persistence (`expo-secure-store`), Profile Management & Row-Level Security (RLS).
 - **Step 3 (Phase P2 / S06–S08)**: Core CRUD, State Management (TanStack Query), LinkedIn-style Shared Marketplace RLS, Dual-Party Applications Workflow, Recruiter Consultation Tracking, and Dashboard Analytics.
+- **Step 4 (Phase P3 / WF-03 / F03)**: Private File Storage, Binary Validation & Signed URLs (Supabase Storage, Expo Document Picker & FileSystem, Scanned-PDF Detection, Recruiter Preview).
 
 ---
 
@@ -66,19 +67,36 @@ This document provides a technical overview of the architecture, engineering dec
                                                       - viewed_by_recruiter_at
 ```
 
-### Recruiter Consultation Flow & Automatic Synchronization
-1. **Recruiter Opens Candidate Application**:
-   - The recruiter (owner of `job_offers`) taps a candidate card on `src/app/offers/[id].tsx` and navigates to `src/app/applications/[id].tsx`.
-   - A `useEffect` detects that the viewer is the offer creator (`offer.user_id === user.id`) and `!application.viewed_by_recruiter_at`.
-2. **Server-Side Idempotent RPC (`mark_application_viewed`)**:
-   - The client invokes `supabase.rpc('mark_application_viewed', { p_application_id })`.
-   - PostgreSQL verifies that `auth.uid()` owns the offer via `JOIN public.job_offers`.
-   - If verified, it sets `viewed_by_recruiter_at = COALESCE(viewed_by_recruiter_at, now())`, preserving the exact initial consultation timestamp.
-3. **Database Consistency Trigger**:
-   - If a recruiter advances a candidate's status without opening the detail screen first, a `BEFORE UPDATE` trigger automatically sets `viewed_by_recruiter_at = COALESCE(NEW.viewed_by_recruiter_at, OLD.viewed_by_recruiter_at, now())`.
-4. **Cache Invalidation & Real-Time Candidate Feedback**:
-   - On success, TanStack Query invalidates `queryKey: ['applications']`, `['application', id]`, and `['dashboardStats']`.
-   - When the candidate opens their app, the **`Vue par le recruteur`** badge appears on the `Accueil` and `Candidatures` tabs, and the detail view displays the exact consultation timestamp.
+### Private CV Storage & Signed URL Data Flow (Step 4)
+
+```
+[ Candidate / Mobile UI (`src/app/cv.tsx`) ]
+          │
+          ▼
+[ Client-Side Validation (`src/services/cvService.ts`) ]
+- Extension & MIME: .pdf / application/pdf
+- Size limit: <= 5 Mo (5,242,880 bytes)
+- Magic Header: 0x25 0x50 0x44 0x46 0x2D (%PDF-)
+- Structure Scan: /Font and text stream operators (rejects image scans)
+          │ (Binary ArrayBuffer)
+          ▼
+[ Supabase Private Storage (`cvs` bucket) ]
+- Path: {user.id}/{timestamp}_{filename}.pdf
+- Storage RLS: folder isolation (storage.foldername(name))[1] = auth.uid()
+          │ (Upload OK)
+          ▼
+[ PostgreSQL Metadata (`public.user_cvs`) ]
+- Unique user_id constraint (MVP single-CV rule)
+- On DB failure: rollback removes storage file (no orphan files)
+- On replacement: old storage object deleted after DB upsert
+          │
+     ┌────┴────────────────────────────────────────┐
+     │                                             │
+     ▼                                             ▼
+[ Candidate Preview ]                     [ Recruiter Preview (`src/app/applications/[id].tsx`) ]
+`getSignedCvUrl(path)` (300s TTL)         `getSignedCvUrl(path)` (300s TTL)
+Authorized by ownership                   Authorized via EXISTS (applications + job_offers)
+```
 
 ---
 
@@ -148,17 +166,28 @@ This document provides a technical overview of the architecture, engineering dec
   - Although RLS allows offer posters to read applications submitted to their offers, the user's personal `Candidatures` tab and `Accueil` dashboard counters must only reflect jobs *they* applied to.
   - Client queries explicitly apply `.eq('user_id', user.id)`. This provides defense-in-depth and precise UI scoping without relying on client-side array filtering.
 
-### Recruiter Viewed Indicator & Idempotent RPCs
-- **Data Modeling: Nullable `timestamptz` vs Boolean**:
-  - Storing a boolean flag (`is_viewed boolean`) requires adding a separate timestamp column (`viewed_at timestamptz`) if timing matters, introducing dual-column synchronization risks.
-  - Storing a single nullable timestamp `viewed_by_recruiter_at timestamptz NULL` provides both boolean status (`Boolean(viewed_by_recruiter_at)`) and the exact audit timestamp in a single source of truth.
-- **Server-Side Actor Enforcement & Idempotency**:
-  - Client-side updates to `viewed_by_recruiter_at` are vulnerable to spoofing if done via direct table update.
-  - The PostgreSQL function `mark_application_viewed(p_application_id uuid)` enforces authorization via `JOIN job_offers WHERE user_id = auth.uid()`.
-  - Using `COALESCE(viewed_by_recruiter_at, now())` guarantees that subsequent opens by the recruiter do not overwrite the timestamp of the first consultation.
-- **UI & Cache Synchronization**:
-  - Invoking `mark_application_viewed` invalidates query keys `['applications']`, `['application', id]`, and `['dashboardStats']`.
-  - When the candidate returns to the app, the viewed status reflects immediately across the `Accueil` activity feed, `Candidatures` tab badges, and `ApplicationDetail` consultation banner.
+### Private File Storage, Binary Validation & Signed URLs (Step 4)
+- **Private Buckets & Signed URLs vs Public URLs**:
+  - Resumes (CVs) contain sensitive Personally Identifiable Information (PII) including full names, physical addresses, phone numbers, email addresses, and employment timelines.
+  - Storing CVs in public cloud buckets creates permanent publicly indexable URLs that cannot be revoked or audited.
+  - Our architecture marks the `cvs` bucket as private (`public = false`) and enforces strict RLS on `storage.objects`. Document access requires generating short-lived signed URLs (`createSignedUrl` with 300 seconds TTL). The signed tokens expire automatically, eliminating permanent exposure.
+- **Defense-in-Depth File Validation (Magic Bytes & Scanned-PDF Detection)**:
+  - Checking file extension (`.pdf`) or browser-reported MIME types (`application/pdf`) is trivial to spoof by simply renaming an executable or image file.
+  - In `src/services/cvService.ts`, validation inspects the binary `ArrayBuffer` directly:
+    1. **Magic Header Check**: Confirms that byte offsets 0 through 4 strictly match `%PDF-` (`0x25 0x50 0x44 0x46 0x2D`).
+    2. **Scanned Image Detection**: Parses structural markers in the PDF content stream looking for font definitions (`/Font`, `/Type /Font`) and text rendering operators (`BT`, `ET`, `Tj`, `TJ`). Pure raster scans lacking selectable text are rejected immediately with the exact PRD message: `"Ce document ne peut pas être analysé dans cette version"`. This protects future AI parsing pipelines from wasting inference tokens on unreadable scans.
+- **Preventing Orphan Storage Objects**:
+  - In cloud systems, distributed transactions between SQL databases and blob storage buckets do not exist natively.
+  - We employ an atomic sequence with rollback:
+    1. Upload binary file to Storage path `{userId}/{timestamp}_{cleanName}`.
+    2. Upsert database record in `public.user_cvs`.
+    3. If database upsert fails, immediately trigger compensation: `storage.from('cvs').remove([targetFilePath])`.
+    4. If replacement succeeded, remove the old file `oldFilePath` only after database upsert resolves.
+  - This guarantees that no orphaned storage objects accumulate on failure, and no broken database rows point to nonexistent storage paths.
+- **Storage Path Prefix RLS**:
+  - The object storage policy inspects the path prefix via `(storage.foldername(name))[1]`.
+  - For mutations (`INSERT`, `UPDATE`, `DELETE`), the folder must strictly match `auth.uid()::text`.
+  - For reads (`SELECT`), access is granted if the folder matches `auth.uid()::text` OR if an application exists linking the candidate to one of the recruiter's published job offers (`EXISTS (SELECT 1 FROM public.applications a JOIN public.job_offers o ON o.id = a.offer_id WHERE a.user_id::text = (storage.foldername(name))[1] AND o.user_id = auth.uid())`).
 
 ---
 
@@ -174,7 +203,7 @@ This document provides a technical overview of the architecture, engineering dec
 
 ### Q3: Why is progressive dependency management important in React Native projects?
 > **Answer:**
-> In React Native, each added dependency can increase JavaScript bundle size, introduce native link complexity, or cause version incompatibility between Expo SDK native modules. By following progressive dependency management (installing only packages required for the active phase—here, auth, secure store, validation, and query caching), we avoid premature optimization, maintain clean dependency audit trees, and ensure every package is intentionally justified and verified.
+> In React Native, each added dependency can increase JavaScript bundle size, introduce native link complexity, or cause version incompatibility between Expo SDK native modules. By following progressive dependency management (installing only packages required for the active phase), we avoid premature optimization, maintain clean dependency audit trees, and ensure every package is intentionally justified and verified.
 
 ### Q4: How do you prevent layout flashing and unauthorized back-navigation on mobile logout?
 > **Answer:**
@@ -183,26 +212,22 @@ This document provides a technical overview of the architecture, engineering dec
 ### Q5: What is the difference between PostgreSQL Table Privileges (`GRANT`) and Row-Level Security (`RLS`), and how do you ensure graceful UI degradation on mobile?
 > **Answer:**
 > In PostgreSQL and Supabase, access control operates in two distinct tiers:
-> - **Table-Level Privileges (`GRANT`)**: Grants determine whether a database role (such as `authenticated` or `anon`) is allowed to execute specific SQL statements (`SELECT`, `INSERT`, `UPDATE`, `DELETE`) on the relation at all. If `GRANT ... ON TABLE public.profiles TO authenticated` is missing, PostgreSQL immediately rejects requests with `permission denied for table profiles` before evaluating any row.
+> - **Table-Level Privileges (`GRANT`)**: Grants determine whether a database role (such as `authenticated` or `anon`) is allowed to execute specific SQL statements (`SELECT`, `INSERT`, `UPDATE`, `DELETE`) on the relation at all.
 > - **Row-Level Security (`RLS`)**: Once table privileges are granted, RLS acts as a row filter determining *which rows* the role can access based on security expressions (e.g. `auth.uid() = id`). Both tiers are required for secure operation.
 > 
-> Regarding **Graceful UI Degradation**:
-> Root session management must always be decoupled from feature-level data queries. If a table query fails (due to network timeout, missing privileges, or schema sync issues), the UI must display an inline error state without removing critical session actions. The logout button (`signOut`) must remain rendered and interactive in all states (loading, empty, or error) so the user is never trapped in a broken authenticated view.
+> Regarding **Graceful UI Degradation**: Root session management must always be decoupled from feature-level data queries. If a table query fails, the UI displays an inline error state without removing critical session actions like the logout button.
 
 ### Q6: Why choose TanStack Query over manual `useEffect` / `useState` fetching in React Native?
 > **Answer:**
-> Manual state fetching in React Native leads to boilerplate code, unhandled race conditions, missing cancellation tokens, and lack of cross-screen cache coherence. TanStack Query provides:
-> 1. **Deduplication & Caching**: Concurrent components mount without firing duplicate HTTP requests. Stale-while-revalidate provides instant transitions on mobile screens.
-> 2. **Declarative Invalidation**: Mutations in detail screens immediately invalidate related list and summary queries via structured query keys without prop drilling or global pub/sub events.
-> 3. **Native Lifecycle Fit**: Integrates directly with pull-to-refresh (`refetch`), window focus/app-state revalidation, and cursor/offset pagination.
+> Manual state fetching in React Native leads to boilerplate code, unhandled race conditions, missing cancellation tokens, and lack of cross-screen cache coherence. TanStack Query provides automated deduplication, stale-while-revalidate caching, declarative cache invalidation linking mutations directly to queries, and seamless pull-to-refresh integration.
 
 ### Q7: Why and how must client query caches be invalidated upon user logout?
 > **Answer:**
-> In client applications, query caches (such as TanStack Query's `QueryCache`) store server responses in memory. On mobile devices where multiple users might log into the application sequentially, failing to wipe the cache results in cross-tenant data leaks: the next logged-in user could view previously cached job offers, applications, or candidate details while new queries are in flight. We prevent this by invoking `queryClient.clear()` directly inside the `signOut` method of our `AuthContext`, wiping all in-memory query caches synchronously alongside token deletion.
+> In client applications, query caches store server responses in memory. On shared mobile devices where multiple users might log into the application sequentially, failing to wipe the cache results in cross-tenant data leaks: the next logged-in user could view previously cached job offers, applications, or candidate details while new queries are in flight. We prevent this by invoking `queryClient.clear()` directly inside the `signOut` method of our `AuthContext`.
 
 ### Q8: How does a shared marketplace model implement dual-party access in Supabase without a custom API server?
 > **Answer:**
-> In a marketplace where both applicants and job creators must interact with the same application record, creating custom backend endpoints with custom auth middleware adds unnecessary operational overhead. Supabase RLS handles this natively via relational subqueries:
+> Supabase RLS handles this natively via relational subqueries:
 > ```sql
 > USING (
 >   auth.uid() = user_id
@@ -213,16 +238,15 @@ This document provides a technical overview of the architecture, engineering dec
 >   )
 > )
 > ```
-> PostgreSQL executes this query within the database transaction. If the authenticated requester matches either the applicant's ID or the creator's ID on the linked job offer, access is granted.
+> PostgreSQL executes this query within the database transaction. If the authenticated requester matches either the applicant's ID or the creator's ID on the linked job offer, access is granted automatically.
 
 ### Q9: Why should client queries explicitly filter by `user_id` when PostgreSQL RLS already allows broader reads?
 > **Answer:**
-> In our shared marketplace, RLS permits offer creators to read applications submitted to their offers in addition to their own job applications. If the candidate's personal `Candidatures` tab or dashboard stats query ran `SELECT * FROM applications` without an explicit filter, the result set would inadvertently combine applications the user submitted with applications submitted by others to the user's job postings.
-> By adding `.eq('user_id', user.id)` to personal queries, we ensure precise data scoping and eliminate client-side array partitioning, while maintaining defense-in-depth security.
+> In our shared marketplace, RLS permits offer creators to read applications submitted to their offers in addition to their own job applications. If the candidate's personal `Candidatures` tab or dashboard stats query ran `SELECT * FROM applications` without an explicit filter, the result set would inadvertently combine applications the user submitted with applications submitted by others to the user's job postings. Adding `.eq('user_id', user.id)` ensures accurate UI scoping and defense-in-depth.
 
 ### Q10: How do you prevent self-application attacks in a marketplace platform using database RLS?
 > **Answer:**
-> Allowing users to apply to their own job offers corrupts candidate metrics and causes state confusion in recruitment pipelines. Rather than relying solely on client UI checks (such as hiding the apply button), we enforce this rule at the database engine level inside the `INSERT` policy:
+> Rather than relying solely on client UI checks, we enforce this rule at the database engine level inside the `INSERT` policy:
 > ```sql
 > WITH CHECK (
 >   auth.uid() = user_id
@@ -237,22 +261,54 @@ This document provides a technical overview of the architecture, engineering dec
 
 ### Q11: Why is a nullable timestamp (`timestamptz`) preferred over a boolean flag for tracking read/view status in collaborative workflows?
 > **Answer:**
-> Using a boolean flag (`is_viewed boolean`) creates a lossy abstraction: it answers *whether* an item was seen, but cannot answer *when*. If product requirements later demand displaying "Consultée il y a 2 jours" or calculating recruiter response latency SLAs, a second column (`viewed_at timestamptz`) must be retrofitted, creating consistency hazards where `is_viewed = true` but `viewed_at IS NULL`.
-> A single nullable timestamp (`viewed_by_recruiter_at timestamptz NULL`) elegantly satisfies both needs: `Boolean(viewed_by_recruiter_at)` derives the binary state, while the timestamp provides full auditability and precise UI presentation without redundant columns.
+> Using a boolean flag (`is_viewed boolean`) is lossy: it records *whether* an item was seen, but not *when*. A single nullable timestamp (`viewed_by_recruiter_at timestamptz NULL`) satisfies both: `Boolean(viewed_by_recruiter_at)` derives the binary state, while the timestamp provides full auditability and precise UI presentation without redundant columns.
 
 ### Q12: How do idempotent RPC functions and database triggers work together to prevent race conditions in consultation tracking?
 > **Answer:**
-> If consultation tracking relies on raw client-side updates (`UPDATE applications SET viewed_by_recruiter_at = now()`), two problems arise:
-> 1. An applicant could maliciously issue the update to fake recruiter interest.
-> 2. Every subsequent open by the recruiter would overwrite the timestamp of the first view.
-> We resolve this through a dedicated RPC function (`mark_application_viewed`) that verifies offer ownership (`JOIN job_offers WHERE user_id = auth.uid()`) and uses `COALESCE(viewed_by_recruiter_at, now())` for idempotency. Furthermore, a `BEFORE UPDATE` database trigger ensures that if a recruiter directly changes candidate status (e.g. from `Applied` to `Interview`) without opening the detail view, `viewed_by_recruiter_at` is automatically populated, keeping application state consistent under all paths.
+> We implement a dedicated RPC function (`mark_application_viewed`) that verifies offer ownership (`JOIN job_offers WHERE user_id = auth.uid()`) and uses `COALESCE(viewed_by_recruiter_at, now())` for idempotency. Furthermore, a `BEFORE UPDATE` database trigger ensures that if a recruiter directly changes candidate status without opening the detail view, `viewed_by_recruiter_at` is automatically populated, keeping application state consistent under all paths.
+
+### Q13: Why should resume/CV storage buckets always be private with short-lived signed URLs instead of public CDN links?
+> **Answer:**
+> Resumes contain sensitive Personally Identifiable Information (PII) including full names, phone numbers, physical addresses, and employment records. If stored in a public bucket, the generated URL is permanent, unauthenticated, and indexable by search engines or scrapers. In a private bucket, files cannot be accessed without an authorized cryptographic token. By generating short-lived signed URLs (`createSignedUrl` with 300s TTL), the application grants temporary access solely for the duration of the preview session, ensuring complete data sovereignty and GDPR compliance.
+
+### Q14: How do you perform defense-in-depth file validation in React Native to prevent spoofed files and unparseable scans?
+> **Answer:**
+> File extensions and MIME types sent by client pickers can be easily spoofed or misreported. To defend against malicious or corrupt uploads, our service:
+> 1. Verifies the file extension is `.pdf` and size does not exceed 5 Mo.
+> 2. Reads the initial file bytes via `expo-file-system` / `ArrayBuffer` and verifies the `%PDF-` magic header (`0x25 0x50 0x44 0x46 0x2D`).
+> 3. Scans the binary content stream for font dictionaries (`/Font`) and text rendering operators (`BT`, `Tj`, `TJ`). If the file is an image-only scan lacking selectable text, it is rejected immediately with `"Ce document ne peut pas être analysé dans cette version"`, saving server storage and avoiding downstream LLM parsing failures.
+
+### Q15: How do you achieve consistency and avoid orphan files between cloud object storage and a SQL database?
+> **Answer:**
+> Because distributed two-phase commits do not exist across independent REST APIs for blob storage and relational databases, we implement a compensating transaction pattern:
+> 1. Upload the file to the private Storage bucket under a unique path (`{userId}/{timestamp}_{cleanName}`).
+> 2. Execute the database upsert in `public.user_cvs`.
+> 3. If the database upsert fails, catch the error and issue an immediate compensation call (`storage.from('cvs').remove([targetFilePath])`), ensuring no orphan file remains in storage.
+> 4. If the database upsert succeeds and replaces an older document, delete the `oldFilePath` from Storage only after the database commit completes.
+
+### Q16: How does Supabase Storage RLS leverage the folder hierarchy to authorize recruiters reviewing candidate applications?
+> **Answer:**
+> Supabase Storage stores paths in `storage.objects.name` and exposes the helper `storage.foldername(name)`. By convention, we namespace every CV under its owner's UUID: `{userId}/{timestamp}_{filename}.pdf`.
+> The Storage RLS policy enforces folder isolation for write operations:
+> `(storage.foldername(name))[1] = auth.uid()::text`
+> For read operations, it permits access if the folder belongs to the user OR if the requester owns a job offer that the candidate applied to:
+> ```sql
+> (storage.foldername(name))[1] = auth.uid()::text
+> OR EXISTS (
+>   SELECT 1 FROM public.applications a
+>   JOIN public.job_offers o ON o.id = a.offer_id
+>   WHERE a.user_id::text = (storage.foldername(name))[1]
+>     AND o.user_id = auth.uid()
+> )
+> ```
+> This secures file storage directly at the storage engine level without intermediary server proxies.
 
 ---
 
 ## 4. Database Schema Reference
 
 ```sql
--- This migration updates row level security policies for the shared marketplace model.
+-- This migration creates the private cv metadata table and storage policies.
 
 -- 1. Profiles Table
 CREATE TABLE public.profiles (
@@ -297,52 +353,44 @@ CREATE TABLE public.applications (
   CONSTRAINT unique_user_offer UNIQUE (user_id, offer_id)
 );
 
--- Consultation RPC Function
-CREATE OR REPLACE FUNCTION public.mark_application_viewed(p_application_id uuid)
-RETURNS boolean
-LANGUAGE plpgsql
-SECURITY INVOKER
-SET search_path = public
-AS $$
-DECLARE
-  v_is_authorized boolean;
-BEGIN
-  SELECT EXISTS (
-    SELECT 1
-    FROM public.applications a
-    JOIN public.job_offers o ON o.id = a.offer_id
-    WHERE a.id = p_application_id AND o.user_id = auth.uid()
-  ) INTO v_is_authorized;
+-- 4. User CVs Table (Single CV per user constraint)
+CREATE TABLE public.user_cvs (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL UNIQUE REFERENCES auth.users(id) ON DELETE CASCADE DEFAULT auth.uid(),
+  file_path text NOT NULL,
+  file_name text NOT NULL,
+  file_size_bytes integer NOT NULL CHECK (file_size_bytes > 0 AND file_size_bytes <= 5242880),
+  mime_type text NOT NULL DEFAULT 'application/pdf',
+  created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
+  updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
+);
 
-  IF NOT v_is_authorized THEN
-    RETURN false;
-  END IF;
+-- 5. Storage Bucket Configuration
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES ('cvs', 'cvs', false, 5242880, ARRAY['application/pdf'])
+ON CONFLICT (id) DO NOTHING;
 
-  UPDATE public.applications
-  SET viewed_by_recruiter_at = COALESCE(viewed_by_recruiter_at, now())
-  WHERE id = p_application_id;
+-- 6. Storage RLS Policies
+CREATE POLICY "users can upload their own cv object"
+  ON storage.objects FOR INSERT TO authenticated
+  WITH CHECK (
+    bucket_id = 'cvs'
+    AND (storage.foldername(name))[1] = auth.uid()::text
+  );
 
-  RETURN true;
-END;
-$$;
-
--- Consultation Status Consistency Trigger
-CREATE OR REPLACE FUNCTION public.handle_application_viewed_on_status_change()
-RETURNS trigger
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-BEGIN
-  IF NEW.status IS DISTINCT FROM OLD.status THEN
-    NEW.viewed_by_recruiter_at = COALESCE(NEW.viewed_by_recruiter_at, OLD.viewed_by_recruiter_at, now());
-  END IF;
-  RETURN NEW;
-END;
-$$;
-
-DROP TRIGGER IF EXISTS set_application_viewed_on_status_update ON public.applications;
-CREATE TRIGGER set_application_viewed_on_status_update
-  BEFORE UPDATE ON public.applications
-  FOR EACH ROW EXECUTE FUNCTION public.handle_application_viewed_on_status_change();
+CREATE POLICY "users and authorized recruiters can read cv objects"
+  ON storage.objects FOR SELECT TO authenticated
+  USING (
+    bucket_id = 'cvs'
+    AND (
+      (storage.foldername(name))[1] = auth.uid()::text
+      OR EXISTS (
+        SELECT 1
+        FROM public.applications a
+        JOIN public.job_offers o ON o.id = a.offer_id
+        WHERE a.user_id::text = (storage.foldername(name))[1]
+          AND o.user_id = auth.uid()
+      )
+    )
+  );
 ```

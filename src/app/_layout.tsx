@@ -103,6 +103,16 @@ function RootNavigationLayout() {
             headerTitleStyle: { color: '#0F172A', fontWeight: '600' },
           }}
         />
+        <Stack.Screen
+          name="cv"
+          options={{
+            headerShown: true,
+            title: 'Mon CV',
+            headerStyle: { backgroundColor: '#FFFFFF' },
+            headerTintColor: '#0F172A',
+            headerTitleStyle: { color: '#0F172A', fontWeight: '600' },
+          }}
+        />
       </Stack>
     </View>
   );

@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import * as WebBrowser from 'expo-web-browser';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -16,6 +17,7 @@ import {
 
 import { useAuth } from '@/context/AuthContext';
 import { useApplication, useApplicationMutations } from '@/hooks/useApplications';
+import { useCandidateCv, useCvMutations } from '@/hooks/useCv';
 import { ApplicationStatus } from '@/types/database';
 
 const STATUS_OPTIONS: { label: string; value: ApplicationStatus; color: string; bg: string }[] = [
@@ -47,6 +49,12 @@ export default function ApplicationDetailScreen() {
     user?.id && application?.offer?.user_id && application.offer.user_id === user.id
   );
   const isApplicant = Boolean(user?.id && application?.user_id && application.user_id === user.id);
+
+  const { data: candidateCv, isLoading: isCandidateCvLoading } = useCandidateCv(
+    isOfferPoster ? application?.user_id : undefined
+  );
+  const { getSignedCvUrl } = useCvMutations();
+  const [isOpeningCandidateCv, setIsOpeningCandidateCv] = useState<boolean>(false);
 
   const [notes, setNotes] = useState<string>('');
   const [notesSavedNotice, setNotesSavedNotice] = useState<boolean>(false);
@@ -288,6 +296,69 @@ export default function ApplicationDetailScreen() {
                 )}
               </View>
             </View>
+          </View>
+        )}
+
+        {isOfferPoster && (
+          <View style={styles.sectionCard}>
+            <Text style={styles.sectionTitle}>Curriculum Vitae du candidat</Text>
+            {isCandidateCvLoading ? (
+              <ActivityIndicator color="#2563EB" style={{ marginVertical: 12 }} />
+            ) : candidateCv ? (
+              <View style={styles.candidateCvCard}>
+                <View style={styles.candidateCvLeft}>
+                  <Ionicons name="document-text" size={28} color="#2563EB" />
+                  <View style={styles.candidateCvInfo}>
+                    <Text style={styles.candidateCvName} numberOfLines={1}>
+                      {candidateCv.file_name}
+                    </Text>
+                    <Text style={styles.candidateCvSize}>
+                      {Math.round(candidateCv.file_size_bytes / 1024)} Ko • Format PDF
+                    </Text>
+                  </View>
+                </View>
+
+                <Pressable
+                  style={[styles.viewCvButton, isOpeningCandidateCv && styles.buttonDisabled]}
+                  disabled={isOpeningCandidateCv}
+                  onPress={async () => {
+                    try {
+                      setIsOpeningCandidateCv(true);
+                      const signedUrl = await getSignedCvUrl(candidateCv.file_path);
+                      await WebBrowser.openBrowserAsync(signedUrl);
+                    } catch (err) {
+                      console.error('Failed to open candidate cv', err);
+                      Alert.alert('Erreur', 'Impossible d’ouvrir le CV du candidat.');
+                    } finally {
+                      setIsOpeningCandidateCv(false);
+                    }
+                  }}>
+                  {isOpeningCandidateCv ? (
+                    <ActivityIndicator color="#FFFFFF" size="small" />
+                  ) : (
+                    <>
+                      <Ionicons
+                        name="eye-outline"
+                        size={15}
+                        color="#FFFFFF"
+                        style={{ marginRight: 6 }}
+                      />
+                      <Text style={styles.viewCvButtonText}>Consulter le CV du candidat</Text>
+                    </>
+                  )}
+                </Pressable>
+              </View>
+            ) : (
+              <View style={styles.noCvNotice}>
+                <Ionicons
+                  name="document-outline"
+                  size={18}
+                  color="#94A3B8"
+                  style={{ marginRight: 8 }}
+                />
+                <Text style={styles.noCvText}>Le candidat n’a pas encore importé de CV</Text>
+              </View>
+            )}
           </View>
         )}
 
@@ -770,5 +841,60 @@ const styles = StyleSheet.create({
   },
   buttonDisabled: {
     opacity: 0.6,
+  },
+  candidateCvCard: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    gap: 12,
+    marginTop: 6,
+  },
+  candidateCvLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  candidateCvInfo: {
+    flex: 1,
+  },
+  candidateCvName: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  candidateCvSize: {
+    fontSize: 12,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  viewCvButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#2563EB',
+    borderRadius: 8,
+    paddingVertical: 10,
+  },
+  viewCvButtonText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  noCvNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 10,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    marginTop: 6,
+  },
+  noCvText: {
+    fontSize: 13,
+    color: '#64748B',
+    fontStyle: 'italic',
   },
 });

@@ -70,3 +70,15 @@ export type ApplicationInput = {
   notes?: string | null;
   applied_at?: string;
 };
+
+// This interface defines the schema for a user uploaded cv document record.
+export interface UserCv {
+  id: string;
+  user_id: string;
+  file_path: string;
+  file_name: string;
+  file_size_bytes: number;
+  mime_type: string;
+  created_at: string;
+  updated_at: string;
+}
