@@ -6,16 +6,22 @@ import { JobOffer, JobOfferInput } from '@/types/database';
 
 interface UseOffersParams {
   search?: string;
+  filter?: 'all' | 'mine';
   page?: number;
   pageSize?: number;
 }
 
-// This hook retrieves a paginated list of job offers with optional search filtering.
-export function useOffers({ search = '', page = 0, pageSize = 15 }: UseOffersParams = {}) {
+// This hook retrieves a paginated list of job offers with optional search and creator filtering.
+export function useOffers({
+  search = '',
+  filter = 'all',
+  page = 0,
+  pageSize = 15,
+}: UseOffersParams = {}) {
   const { user } = useAuth();
 
   return useQuery({
-    queryKey: ['offers', { search, page, pageSize, userId: user?.id }],
+    queryKey: ['offers', { search, filter, page, pageSize, userId: user?.id }],
     queryFn: async () => {
       if (!user?.id) {
         return { data: [], count: 0 };
@@ -26,10 +32,13 @@ export function useOffers({ search = '', page = 0, pageSize = 15 }: UseOffersPar
 
       let query = supabase
         .from('job_offers')
-        .select('*', { count: 'exact' })
-        .eq('user_id', user.id)
+        .select('*, poster:profiles(id, display_name)', { count: 'exact' })
         .order('created_at', { ascending: false })
         .range(from, to);
+
+      if (filter === 'mine') {
+        query = query.eq('user_id', user.id);
+      }
 
       if (search.trim()) {
         const term = `%${search.trim()}%`;
@@ -49,7 +58,7 @@ export function useOffers({ search = '', page = 0, pageSize = 15 }: UseOffersPar
   });
 }
 
-// This hook fetches the details of a single job offer by identifier.
+// This hook fetches the details of a single job offer across the marketplace.
 export function useOffer(id: string | undefined) {
   const { user } = useAuth();
 
@@ -61,9 +70,8 @@ export function useOffer(id: string | undefined) {
       }
       const { data, error } = await supabase
         .from('job_offers')
-        .select('*')
+        .select('*, poster:profiles(id, display_name)')
         .eq('id', id)
-        .eq('user_id', user.id)
         .maybeSingle();
 
       if (error) {
@@ -106,7 +114,7 @@ export function useOfferMutations() {
     },
   });
 
-  // This mutation updates an existing job offer record.
+  // This mutation updates an existing job offer record created by the current user.
   const updateMutation = useMutation({
     mutationFn: async ({ id, input }: { id: string; input: Partial<JobOfferInput> }) => {
       if (!user?.id) {

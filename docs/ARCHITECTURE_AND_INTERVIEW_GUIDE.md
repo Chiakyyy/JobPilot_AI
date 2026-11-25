@@ -3,7 +3,7 @@
 This document provides a technical overview of the architecture, engineering decisions, and security model implemented in JobPilot AI across:
 - **Step 1 (App Foundation)**: Expo Router, TypeScript configuration, and French-first navigation layout.
 - **Step 2 (Phase P1 / S03–S05)**: Supabase Authentication, Secure Session Persistence (`expo-secure-store`), Profile Management & Row-Level Security (RLS).
-- **Step 3 (Phase P2 / S06–S08)**: Core CRUD, State Management (TanStack Query), Relational RLS, Audit History (`status_history`), and Dashboard Analytics.
+- **Step 3 (Phase P2 / S06–S08)**: Core CRUD, State Management (TanStack Query), LinkedIn-style Shared Marketplace RLS, Dual-Party Applications Workflow, and Dashboard Analytics.
 
 ---
 
@@ -39,13 +39,13 @@ This document provides a technical overview of the architecture, engineering dec
                                                  - Evaluates RLS (`auth.uid() = id`)
 ```
 
-### Core CRUD, State Management & Relational Flow (Step 3)
+### Shared Marketplace Model & Dual-Party Flow (Step 3)
 
 ```
-[ User Action / Mobile Screen ] (Offres, Candidatures, Accueil Dashboard)
+[ User Action / Mobile Screen ] (Offres Marketplace, Candidatures, Accueil Dashboard)
           │
           ▼
-[ TanStack Query Hook Layer ] (`useOffers`, `useApplications`, `useDashboardStats`)
+[ TanStack Query Hook Layer ] (`useOffers`, `useApplications`, `useOfferApplicants`, `useDashboardStats`)
           │
      ┌────┴─────────────────────────────┐
      │ Cache hit (stale-while-revalidate)│ Query / Mutation Execution
@@ -55,33 +55,35 @@ This document provides a technical overview of the architecture, engineering dec
      ▼                                  ▼
 [ Mobile UI State ]               [ PostgreSQL Database Engine ]
                                         │
-                  ┌─────────────────────┴──────────────────────┐
-                  │                                            │
-                  ▼                                            ▼
-         [ public.job_offers ]                       [ public.applications ]
-         - RLS: auth.uid() = user_id                 - RLS: auth.uid() = user_id
-                                                     - Relational RLS: EXISTS (job_offers)
-                                                     - UNIQUE(user_id, offer_id)
-                                                     - JSONB status_history
+                  ┌─────────────────────┼──────────────────────┐
+                  │                     │                      │
+                  ▼                     ▼                      ▼
+         [ public.profiles ]   [ public.job_offers ]  [ public.applications ]
+         - SELECT: any auth    - SELECT: any auth     - SELECT: applicant OR poster
+         - INSERT: auth.uid()  - INSERT: auth.uid()   - INSERT: applicant AND NOT poster
+         - UPDATE: auth.uid()  - UPDATE: auth.uid()   - UPDATE: applicant OR poster
+         - DELETE: auth.uid()  - DELETE: auth.uid()   - DELETE: applicant only
 ```
 
-### Application Status Transition & Automatic Cache Synchronization Flow
-1. **User Action in Detail Screen**:
-   - The user selects a new pipeline status (for example, moving from `Applied` to `Interview`) in `src/app/applications/[id].tsx`.
-2. **Mutation Execution (`useApplicationMutations`)**:
-   - The mutation hook queries current `status_history` from `public.applications`.
-   - It appends an audit event `{ "status": newStatus, "changed_at": new Date().toISOString() }` to the history array.
-   - It issues an atomic `UPDATE` to Supabase updating `status`, `status_history`, and `updated_at`.
-3. **Multi-Table Relational RLS Validation**:
-   - PostgreSQL validates that the current user owns the application (`auth.uid() = user_id`).
-   - PostgreSQL verifies relational integrity through `EXISTS (SELECT 1 FROM public.job_offers WHERE id = offer_id AND user_id = auth.uid())`.
-4. **Cache Invalidation & Reactive UI Propagation**:
-   - On mutation success, TanStack Query invalidates targeted query keys:
-     - `['applications']`: Triggers background refetch of the Candidatures list.
-     - `['application', id]`: Updates the active detail screen and progression timeline.
-     - `['applicationByOffer', offerId]`: Syncs the badge inside the corresponding Offer detail screen.
-     - `['dashboardStats']`: Automatically recalculates KPI cards and recent items on the Accueil tab.
-   - Screen subscribers re-render with fresh data without manual event emitters, custom buses, or full screen reloads.
+### Marketplace Interactions & Dual-Party Lifecycle
+1. **Browsing Job Offers (`Offres` Tab)**:
+   - Any authenticated user can view all published offers on the platform via `useOffers({ filter: 'all' })`.
+   - Users can toggle the segmented control to `"Mes offres"` (`filter: 'mine'`) to isolate offers they authored.
+   - Each card displays attribution: `"Publiée par vous"` for the author or `"Publiée par [Nom]"` for third-party recruiters.
+2. **Applying to an Offer (Candidate Action)**:
+   - On the Offer Detail screen (`src/app/offers/[id].tsx`), if the viewer is not the creator, the button `"Postuler à cette offre"` is displayed.
+   - If the user is the offer creator, application buttons are hidden, and the database RLS policy (`NOT EXISTS (...)`) forbids self-applications.
+   - Submitting an application creates a row in `public.applications` with initial status `Applied` and records the first entry in `status_history`.
+3. **Reviewing Applicants (Offer Poster Action)**:
+   - When the creator opens `src/app/offers/[id].tsx`, the `"Candidatures reçues"` section loads all applicants via `useOfferApplicants(offerId)`.
+   - Each applicant card displays candidate metadata (`display_name`, `target_role`, `experience_level`, `skills`) joined from `public.profiles`.
+   - Tapping an applicant navigates to `src/app/applications/[id].tsx`.
+4. **Status Progression & Recruiter Debriefing**:
+   - Both the candidate and the offer creator can update the status pill (`Saved`, `Applied`, `Interview`, `Offer`, `Rejected`).
+   - The offer creator can evaluate and transition the candidate through interview rounds; the update mutation appends an audit event to `status_history`.
+   - The mutation automatically invalidates `queryKey: ['applications']`, `['application', id]`, `['offerApplicants', offerId]`, and `['dashboardStats']`.
+5. **Withdrawal (Candidate Only)**:
+   - Only the candidate who applied can delete the application row. The RLS delete policy strictly checks `auth.uid() = user_id`.
 
 ---
 
@@ -120,32 +122,36 @@ This document provides a technical overview of the architecture, engineering dec
   - Storing server data in an in-memory client cache without clearing it upon logout creates a severe data-leakage vulnerability: the subsequent user could momentarily view cached job offers or candidate profiles before their own queries resolve.
   - Calling `queryClient.clear()` directly inside `signOut` in `AuthContext` ensures every query cache entry is wiped when the active session terminates.
 
-### Relational Row-Level Security (RLS) & Cross-Table Integrity
-- **Why Relational RLS Is Crucial**:
-  - In a relational schema where `applications` reference `job_offers`, verifying `auth.uid() = user_id` on the `applications` table alone is insufficient.
-  - A malicious user could craft a request inserting an application with their own `user_id` but pointing to another candidate's `offer_id`.
-  - Our RLS check policy enforces relational ownership:
+### Multi-Tenant Marketplace RLS Architecture
+- **Splitting `SELECT` vs Mutation Policies**:
+  - In a shared marketplace (LinkedIn-style), job offers and user profile summaries must be readable by any authenticated member (`auth.role() = 'authenticated'`).
+  - However, mutation policies (`INSERT`, `UPDATE`, `DELETE`) remain strictly bound to the row owner (`auth.uid() = user_id` for offers, `auth.uid() = id` for profiles).
+  - This separation ensures public discoverability while mathematically preventing unauthorized modifications.
+- **Relational `EXISTS` Subqueries for Dual-Party Access**:
+  - Applications link an applicant (`applications.user_id`) to a job offer (`applications.offer_id`) posted by an author (`job_offers.user_id`).
+  - Instead of requiring custom API middleware to authorize recruiters, PostgreSQL RLS evaluates relational ownership in the database engine:
     ```sql
     auth.uid() = user_id
-    AND EXISTS (
+    OR EXISTS (
       SELECT 1 FROM public.job_offers
-      WHERE id = offer_id AND user_id = auth.uid()
+      WHERE job_offers.id = applications.offer_id
+        AND job_offers.user_id = auth.uid()
     )
     ```
-  - This guarantees complete tenant isolation across both primary and foreign keys.
-
-### Defense-in-Depth Duplicate Prevention: `UNIQUE(user_id, offer_id)`
-- **Architectural Requirement**:
-  - Disabling the "Créer une candidature" button in the client UI is a visual convenience, not a guarantee.
-  - Network retries, concurrent tabs, or direct PostgREST calls can bypass client-side guards and cause duplicate entries.
-  - The database constraint `CONSTRAINT unique_user_offer UNIQUE (user_id, offer_id)` stops race conditions at the storage engine level and guarantees that an applicant cannot have duplicate records for the same job offer.
-
-### Targeted Indexing Strategy
-- **Selective Composite Indexes**:
-  - `idx_job_offers_user_created` (`user_id, created_at DESC`): Optimizes default offer list queries and pagination.
-  - `idx_applications_user_status_updated` (`user_id, status, updated_at DESC`): Accelerates status-filtered lists and dashboard aggregation.
-  - `idx_applications_offer_id` (`offer_id`): Speeds up foreign-key joins and relational RLS subquery lookups.
-  - Avoiding unnecessary indexes preserves high-throughput write performance on mobile.
+  - Both parties gain read and update access to the application lifecycle automatically.
+- **Defense-in-Depth Self-Application Prevention**:
+  - To prevent authors from applying to their own job postings, the insert policy enforces:
+    ```sql
+    auth.uid() = user_id
+    AND NOT EXISTS (
+      SELECT 1 FROM public.job_offers
+      WHERE job_offers.id = applications.offer_id
+        AND job_offers.user_id = auth.uid()
+    )
+    ```
+- **Explicit Scoping in Client Queries (`.eq('user_id', user.id)`)**:
+  - Although RLS allows offer posters to read applications submitted to their offers, the user's personal `Candidatures` tab and `Accueil` dashboard counters must only reflect jobs *they* applied to.
+  - Client queries explicitly apply `.eq('user_id', user.id)`. This provides defense-in-depth and precise UI scoping without relying on client-side array filtering.
 
 ---
 
@@ -187,37 +193,47 @@ This document provides a technical overview of the architecture, engineering dec
 > **Answer:**
 > In client applications, query caches (such as TanStack Query's `QueryCache`) store server responses in memory. On mobile devices where multiple users might log into the application sequentially, failing to wipe the cache results in cross-tenant data leaks: the next logged-in user could view previously cached job offers, applications, or candidate details while new queries are in flight. We prevent this by invoking `queryClient.clear()` directly inside the `signOut` method of our `AuthContext`, wiping all in-memory query caches synchronously alongside token deletion.
 
-### Q8: How do you enforce relational data integrity and prevent cross-tenant offer hijacking with Supabase RLS?
+### Q8: How does a shared marketplace model implement dual-party access in Supabase without a custom API server?
 > **Answer:**
-> When a table references a parent table owned by users, enforcing `auth.uid() = user_id` on the child table alone is not enough. An attacker could craft an insert with their own `user_id` but link an `offer_id` owned by another user.
-> To prevent this, we write cross-table relational RLS policies using `EXISTS`:
+> In a marketplace where both applicants and job creators must interact with the same application record, creating custom backend endpoints with custom auth middleware adds unnecessary operational overhead. Supabase RLS handles this natively via relational subqueries:
 > ```sql
-> WITH CHECK (
+> USING (
 >   auth.uid() = user_id
->   AND EXISTS (
+>   OR EXISTS (
 >     SELECT 1 FROM public.job_offers
->     WHERE id = offer_id AND user_id = auth.uid()
+>     WHERE job_offers.id = applications.offer_id
+>       AND job_offers.user_id = auth.uid()
 >   )
 > )
 > ```
-> PostgreSQL runs this subquery within the database engine transaction, guaranteeing that child rows can only reference parent records that the authenticated user explicitly owns.
+> PostgreSQL executes this query within the database transaction. If the authenticated requester matches either the applicant's ID or the creator's ID on the linked job offer, access is granted.
 
-### Q9: Why is a database-level `UNIQUE(user_id, offer_id)` constraint necessary when the UI already disables the create button?
+### Q9: Why should client queries explicitly filter by `user_id` when PostgreSQL RLS already allows broader reads?
 > **Answer:**
-> Relying purely on client UI state (like disabling a button or redirecting) is a well-known anti-pattern. Mobile networks can cause duplicate network retries, users can click rapidly before state renders, or attackers can bypass the client UI by interacting directly with the Supabase PostgREST API.
-> A database constraint (`CONSTRAINT unique_user_offer UNIQUE (user_id, offer_id)`) guarantees idempotency and database integrity under all concurrency conditions.
+> In our shared marketplace, RLS permits offer creators to read applications submitted to their offers in addition to their own job applications. If the candidate's personal `Candidatures` tab or dashboard stats query ran `SELECT * FROM applications` without an explicit filter, the result set would inadvertently combine applications the user submitted with applications submitted by others to the user's job postings.
+> By adding `.eq('user_id', user.id)` to personal queries, we ensure precise data scoping and eliminate client-side array partitioning, while maintaining defense-in-depth security.
 
-### Q10: How does JSONB `status_history` balance audit logging with document schema flexibility?
+### Q10: How do you prevent self-application attacks in a marketplace platform using database RLS?
 > **Answer:**
-> In job tracking, users require a chronological audit trail of when an application progressed through stages (`Applied` -> `Interview` -> `Offer`). Instead of managing a separate `application_events` table with additional migrations, foreign keys, and multiple SQL joins for an MVP, we store history as an array of JSON objects inside a `jsonb` column: `[{"status": "Applied", "changed_at": "..."}]`.
-> This approach keeps status changes atomic within a single row update, eliminates join overhead on list queries, and provides full flexibility to store status metadata (e.g. interviewer notes, round numbers) without requiring future schema migrations.
+> Allowing users to apply to their own job offers corrupts candidate metrics and causes state confusion in recruitment pipelines. Rather than relying solely on client UI checks (such as hiding the apply button), we enforce this rule at the database engine level inside the `INSERT` policy:
+> ```sql
+> WITH CHECK (
+>   auth.uid() = user_id
+>   AND NOT EXISTS (
+>     SELECT 1 FROM public.job_offers
+>     WHERE job_offers.id = applications.offer_id
+>       AND job_offers.user_id = auth.uid()
+>   )
+> )
+> ```
+> Any direct API call attempting self-application is immediately rejected by PostgreSQL with a policy check violation.
 
 ---
 
 ## 4. Database Schema Reference
 
 ```sql
--- This migration creates profiles, job offers and applications tables with relational security.
+-- This migration updates row level security policies for the shared marketplace model.
 
 -- 1. Profiles Table
 CREATE TABLE public.profiles (
@@ -261,20 +277,27 @@ CREATE TABLE public.applications (
   CONSTRAINT unique_user_offer UNIQUE (user_id, offer_id)
 );
 
--- Grants & Row-Level Security
-GRANT USAGE ON SCHEMA public TO authenticated;
-GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.profiles TO authenticated;
-GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.job_offers TO authenticated;
-GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.applications TO authenticated;
+-- Profiles Marketplace Policies
+CREATE POLICY "authenticated users can view profiles"
+  ON public.profiles FOR SELECT TO authenticated
+  USING (auth.role() = 'authenticated');
 
-ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.job_offers ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.applications ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "users can insert their own profile"
+  ON public.profiles FOR INSERT TO authenticated
+  WITH CHECK (auth.uid() = id);
 
--- Job Offers RLS Policies
-CREATE POLICY "users can view their own job offers"
+CREATE POLICY "users can update their own profile"
+  ON public.profiles FOR UPDATE TO authenticated
+  USING (auth.uid() = id);
+
+CREATE POLICY "users can delete their own profile"
+  ON public.profiles FOR DELETE TO authenticated
+  USING (auth.uid() = id);
+
+-- Job Offers Marketplace Policies
+CREATE POLICY "authenticated users can view all job offers"
   ON public.job_offers FOR SELECT TO authenticated
-  USING (auth.uid() = user_id);
+  USING (auth.role() = 'authenticated');
 
 CREATE POLICY "users can insert their own job offers"
   ON public.job_offers FOR INSERT TO authenticated
@@ -288,33 +311,45 @@ CREATE POLICY "users can delete their own job offers"
   ON public.job_offers FOR DELETE TO authenticated
   USING (auth.uid() = user_id);
 
--- Applications RLS Policies with Cross-Table Check
-CREATE POLICY "users can view their own applications"
+-- Applications Dual-Party Marketplace Policies
+CREATE POLICY "candidates and offer owners can view applications"
   ON public.applications FOR SELECT TO authenticated
-  USING (auth.uid() = user_id);
+  USING (
+    auth.uid() = user_id
+    OR EXISTS (
+      SELECT 1 FROM public.job_offers
+      WHERE job_offers.id = applications.offer_id AND job_offers.user_id = auth.uid()
+    )
+  );
 
-CREATE POLICY "users can insert their own applications"
+CREATE POLICY "candidates can apply to offers from other users"
   ON public.applications FOR INSERT TO authenticated
   WITH CHECK (
     auth.uid() = user_id
-    AND EXISTS (
+    AND NOT EXISTS (
       SELECT 1 FROM public.job_offers
-      WHERE id = offer_id AND user_id = auth.uid()
+      WHERE job_offers.id = applications.offer_id AND job_offers.user_id = auth.uid()
     )
   );
 
-CREATE POLICY "users can update their own applications"
+CREATE POLICY "candidates and offer owners can update applications"
   ON public.applications FOR UPDATE TO authenticated
-  USING (auth.uid() = user_id)
+  USING (
+    auth.uid() = user_id
+    OR EXISTS (
+      SELECT 1 FROM public.job_offers
+      WHERE job_offers.id = applications.offer_id AND job_offers.user_id = auth.uid()
+    )
+  )
   WITH CHECK (
     auth.uid() = user_id
-    AND EXISTS (
+    OR EXISTS (
       SELECT 1 FROM public.job_offers
-      WHERE id = offer_id AND user_id = auth.uid()
+      WHERE job_offers.id = applications.offer_id AND job_offers.user_id = auth.uid()
     )
   );
 
-CREATE POLICY "users can delete their own applications"
+CREATE POLICY "candidates can delete their own applications"
   ON public.applications FOR DELETE TO authenticated
   USING (auth.uid() = user_id);
 ```

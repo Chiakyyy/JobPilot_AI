@@ -11,18 +11,22 @@ import {
   View,
 } from 'react-native';
 
+import { useAuth } from '@/context/AuthContext';
 import { useOffers } from '@/hooks/useOffers';
 import { JobOffer } from '@/types/database';
 
-// This screen presents the searchable and paginated job offers catalog.
+// This screen presents the searchable and paginated job offers catalog in the shared marketplace.
 export default function OffersScreen() {
   const router = useRouter();
+  const { user } = useAuth();
   const [search, setSearch] = useState<string>('');
+  const [filter, setFilter] = useState<'all' | 'mine'>('all');
   const [page, setPage] = useState<number>(0);
   const pageSize = 15;
 
   const { data, isLoading, isError, error, refetch, isRefetching } = useOffers({
     search,
+    filter,
     page,
     pageSize,
   });
@@ -36,13 +40,14 @@ export default function OffersScreen() {
     router.push(`/offers/${id}` as never);
   };
 
-  // This function renders an individual job offer card item.
+  // This function renders an individual job offer card item with creator attribution.
   const renderItem = ({ item }: { item: JobOffer }) => {
     const formattedDate = new Date(item.created_at).toLocaleDateString('fr-FR', {
       day: 'numeric',
       month: 'short',
       year: 'numeric',
     });
+    const isMine = item.user_id === user?.id;
 
     return (
       <Pressable style={styles.card} onPress={() => handleSelectOffer(item.id)}>
@@ -50,8 +55,22 @@ export default function OffersScreen() {
           <Text style={styles.companyName}>{item.company}</Text>
           <Text style={styles.dateText}>{formattedDate}</Text>
         </View>
+
         <Text style={styles.jobTitle}>{item.title}</Text>
         {item.location && <Text style={styles.locationText}>📍 {item.location}</Text>}
+
+        {isMine ? (
+          <View style={styles.mineBadge}>
+            <Text style={styles.mineBadgeText}>Publiée par vous</Text>
+          </View>
+        ) : (
+          <View style={styles.otherBadge}>
+            <Text style={styles.otherBadgeText}>
+              Publiée par {item.poster?.display_name || 'un recruteur'}
+            </Text>
+          </View>
+        )}
+
         {item.description && (
           <Text style={styles.snippetText} numberOfLines={2}>
             {item.description}
@@ -64,6 +83,29 @@ export default function OffersScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.topBar}>
+        <View style={styles.segmentContainer}>
+          <Pressable
+            style={[styles.segmentButton, filter === 'all' && styles.segmentButtonActive]}
+            onPress={() => {
+              setFilter('all');
+              setPage(0);
+            }}>
+            <Text style={[styles.segmentText, filter === 'all' && styles.segmentTextActive]}>
+              Toutes les offres
+            </Text>
+          </Pressable>
+          <Pressable
+            style={[styles.segmentButton, filter === 'mine' && styles.segmentButtonActive]}
+            onPress={() => {
+              setFilter('mine');
+              setPage(0);
+            }}>
+            <Text style={[styles.segmentText, filter === 'mine' && styles.segmentTextActive]}>
+              Mes offres
+            </Text>
+          </Pressable>
+        </View>
+
         <TextInput
           style={styles.searchInput}
           placeholder="Rechercher par titre ou entreprise..."
@@ -78,7 +120,7 @@ export default function OffersScreen() {
 
         <Link href="/offers/new" asChild>
           <Pressable style={styles.addButton}>
-            <Text style={styles.addButtonText}>+ Ajouter une offre</Text>
+            <Text style={styles.addButtonText}>+ Publier une offre</Text>
           </Pressable>
         </Link>
       </View>
@@ -101,15 +143,19 @@ export default function OffersScreen() {
       ) : offers.length === 0 ? (
         <View style={styles.centerBox}>
           <Text style={styles.emptyIcon}>💼</Text>
-          <Text style={styles.emptyTitle}>Aucune offre enregistrée</Text>
+          <Text style={styles.emptyTitle}>
+            {filter === 'mine' ? 'Aucune offre publiée par vous' : 'Aucune offre enregistrée'}
+          </Text>
           <Text style={styles.emptySubtitle}>
             {search.trim()
               ? 'Aucun résultat ne correspond à votre recherche.'
-              : 'Commencez à suivre vos opportunités en ajoutant votre première offre d’emploi.'}
+              : filter === 'mine'
+              ? 'Vous n’avez pas encore publié d’offre d’emploi sur la plateforme.'
+              : 'Commencez à explorer les opportunités ou publiez une première annonce.'}
           </Text>
           <Link href="/offers/new" asChild>
             <Pressable style={styles.emptyCtaButton}>
-              <Text style={styles.emptyCtaButtonText}>+ Ajouter une offre</Text>
+              <Text style={styles.emptyCtaButtonText}>+ Publier une offre</Text>
             </Pressable>
           </Link>
         </View>
@@ -165,6 +211,35 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#E2E8F0',
     gap: 12,
+  },
+  segmentContainer: {
+    flexDirection: 'row',
+    backgroundColor: '#F1F5F9',
+    borderRadius: 10,
+    padding: 4,
+  },
+  segmentButton: {
+    flex: 1,
+    paddingVertical: 8,
+    alignItems: 'center',
+    borderRadius: 8,
+  },
+  segmentButtonActive: {
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  segmentText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#64748B',
+  },
+  segmentTextActive: {
+    color: '#0F172A',
+    fontWeight: '700',
   },
   searchInput: {
     backgroundColor: '#FFFFFF',
@@ -225,12 +300,38 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     color: '#0F172A',
-    marginBottom: 6,
+    marginBottom: 4,
   },
   locationText: {
     fontSize: 13,
     color: '#475569',
     marginBottom: 6,
+  },
+  mineBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#EFF6FF',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    marginBottom: 8,
+  },
+  mineBadgeText: {
+    color: '#2563EB',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  otherBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#F1F5F9',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    marginBottom: 8,
+  },
+  otherBadgeText: {
+    color: '#64748B',
+    fontSize: 11,
+    fontWeight: '500',
   },
   snippetText: {
     fontSize: 13,

@@ -13,6 +13,7 @@ import {
   View,
 } from 'react-native';
 
+import { useAuth } from '@/context/AuthContext';
 import { useApplication, useApplicationMutations } from '@/hooks/useApplications';
 import { ApplicationStatus } from '@/types/database';
 
@@ -24,10 +25,11 @@ const STATUS_OPTIONS: { label: string; value: ApplicationStatus; color: string; 
   { label: 'Refusée', value: 'Rejected', color: '#DC2626', bg: '#FEF2F2' },
 ];
 
-// This screen presents complete application details, status updates, notes and timeline history.
+// This screen presents complete application details, dual-role status updates and applicant summary.
 export default function ApplicationDetailScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { user } = useAuth();
 
   const { data: application, isLoading, isError, error, refetch } = useApplication(id);
   const {
@@ -38,6 +40,11 @@ export default function ApplicationDetailScreen() {
     isUpdatingNotes,
     isDeleting,
   } = useApplicationMutations();
+
+  const isOfferPoster = Boolean(
+    user?.id && application?.offer?.user_id && application.offer.user_id === user.id
+  );
+  const isApplicant = Boolean(user?.id && application?.user_id && application.user_id === user.id);
 
   const [notes, setNotes] = useState<string>('');
   const [notesSavedNotice, setNotesSavedNotice] = useState<boolean>(false);
@@ -90,7 +97,7 @@ export default function ApplicationDetailScreen() {
     }
   };
 
-  // This function saves candidate notes for this application.
+  // This function saves notes for this application.
   const handleSaveNotes = async () => {
     if (!id || isUpdatingNotes) {
       return;
@@ -136,7 +143,19 @@ export default function ApplicationDetailScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <View style={styles.headerCard}>
-          <Text style={styles.companyName}>{application.offer?.company || 'Entreprise'}</Text>
+          <View style={styles.headerTop}>
+            <Text style={styles.companyName}>{application.offer?.company || 'Entreprise'}</Text>
+            {isOfferPoster ? (
+              <View style={styles.roleBadgePoster}>
+                <Text style={styles.roleBadgePosterText}>Candidature reçue</Text>
+              </View>
+            ) : (
+              <View style={styles.roleBadgeCandidate}>
+                <Text style={styles.roleBadgeCandidateText}>Votre candidature</Text>
+              </View>
+            )}
+          </View>
+
           <Text style={styles.jobTitle}>{application.offer?.title || 'Poste'}</Text>
           {application.offer?.location && (
             <Text style={styles.locationText}>📍 {application.offer.location}</Text>
@@ -149,10 +168,57 @@ export default function ApplicationDetailScreen() {
           </Pressable>
         </View>
 
+        {isOfferPoster && (
+          <View style={styles.sectionCard}>
+            <Text style={styles.sectionTitle}>Profil du candidat</Text>
+            <View style={styles.applicantProfileBox}>
+              <View style={styles.profileRow}>
+                <Text style={styles.profileLabel}>Nom affiché :</Text>
+                <Text style={styles.profileValue}>
+                  {application.applicant?.display_name || 'Non renseigné'}
+                </Text>
+              </View>
+
+              <View style={styles.profileRow}>
+                <Text style={styles.profileLabel}>Titre recherché :</Text>
+                <Text style={styles.profileValue}>
+                  {application.applicant?.target_role || 'Non renseigné'}
+                </Text>
+              </View>
+
+              {application.applicant?.experience_level && (
+                <View style={styles.profileRow}>
+                  <Text style={styles.profileLabel}>Expérience :</Text>
+                  <Text style={styles.profileValue}>
+                    {application.applicant.experience_level}
+                  </Text>
+                </View>
+              )}
+
+              <View style={styles.profileSkillsBlock}>
+                <Text style={styles.profileLabel}>Compétences :</Text>
+                {application.applicant?.skills && application.applicant.skills.length > 0 ? (
+                  <View style={styles.skillsGrid}>
+                    {application.applicant.skills.map((skill, sIdx) => (
+                      <View key={sIdx} style={styles.skillPill}>
+                        <Text style={styles.skillPillText}>{skill}</Text>
+                      </View>
+                    ))}
+                  </View>
+                ) : (
+                  <Text style={styles.emptySkillsText}>Aucune compétence renseignée.</Text>
+                )}
+              </View>
+            </View>
+          </View>
+        )}
+
         <View style={styles.sectionCard}>
           <Text style={styles.sectionTitle}>Statut actuel</Text>
           <Text style={styles.sectionSubtitle}>
-            Touchez un statut pour mettre à jour l’avancement :
+            {isOfferPoster
+              ? 'Faites évoluer le statut du candidat dans votre processus de recrutement :'
+              : 'Touchez un statut pour mettre à jour l’avancement :'}
           </Text>
 
           <View style={styles.statusGrid}>
@@ -217,7 +283,9 @@ export default function ApplicationDetailScreen() {
         </View>
 
         <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>Notes et mémo</Text>
+          <Text style={styles.sectionTitle}>
+            {isOfferPoster ? 'Notes du recruteur' : 'Notes et mémo'}
+          </Text>
           {notesSavedNotice && (
             <View style={styles.notesNotice}>
               <Text style={styles.notesNoticeText}>Notes enregistrées avec succès.</Text>
@@ -226,7 +294,11 @@ export default function ApplicationDetailScreen() {
 
           <TextInput
             style={styles.notesInput}
-            placeholder="Ex. Contact RH rencontré, salaire discuté, relance prévue..."
+            placeholder={
+              isOfferPoster
+                ? 'Notes sur le candidat, debriefing d’entretien, évaluation...'
+                : 'Ex. Contact rencontré, questions préparées, relance...'
+            }
             placeholderTextColor="#94A3B8"
             multiline
             numberOfLines={4}
@@ -248,18 +320,20 @@ export default function ApplicationDetailScreen() {
           </Pressable>
         </View>
 
-        <View style={styles.dangerCard}>
-          <Pressable
-            style={[styles.deleteButton, isDeleting && styles.buttonDisabled]}
-            disabled={isDeleting}
-            onPress={handleDelete}>
-            {isDeleting ? (
-              <ActivityIndicator color="#DC2626" />
-            ) : (
-              <Text style={styles.deleteButtonText}>Supprimer cette candidature</Text>
-            )}
-          </Pressable>
-        </View>
+        {isApplicant && (
+          <View style={styles.dangerCard}>
+            <Pressable
+              style={[styles.deleteButton, isDeleting && styles.buttonDisabled]}
+              disabled={isDeleting}
+              onPress={handleDelete}>
+              {isDeleting ? (
+                <ActivityIndicator color="#DC2626" />
+              ) : (
+                <Text style={styles.deleteButtonText}>Supprimer cette candidature</Text>
+              )}
+            </Pressable>
+          </View>
+        )}
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -319,16 +393,43 @@ const styles = StyleSheet.create({
     borderColor: '#E2E8F0',
     shadowColor: '#0F172A',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
     elevation: 2,
   },
+  headerTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
   companyName: {
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '700',
     color: '#2563EB',
     textTransform: 'uppercase',
-    marginBottom: 4,
+  },
+  roleBadgePoster: {
+    backgroundColor: '#FEF3C7',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  roleBadgePosterText: {
+    color: '#D97706',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  roleBadgeCandidate: {
+    backgroundColor: '#EFF6FF',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  roleBadgeCandidateText: {
+    color: '#2563EB',
+    fontSize: 11,
+    fontWeight: '600',
   },
   jobTitle: {
     fontSize: 20,
@@ -342,13 +443,11 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   viewOfferButton: {
-    backgroundColor: '#EFF6FF',
+    backgroundColor: '#F1F5F9',
     borderRadius: 8,
-    paddingVertical: 9,
-    paddingHorizontal: 14,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
     alignSelf: 'flex-start',
-    borderWidth: 1,
-    borderColor: '#BFDBFE',
   },
   viewOfferButtonText: {
     color: '#2563EB',
@@ -361,22 +460,68 @@ const styles = StyleSheet.create({
     padding: 20,
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
   },
   sectionTitle: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '700',
     color: '#0F172A',
-    marginBottom: 4,
+    marginBottom: 6,
   },
   sectionSubtitle: {
     fontSize: 13,
     color: '#64748B',
     marginBottom: 14,
+  },
+  applicantProfileBox: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    gap: 8,
+    marginTop: 6,
+  },
+  profileRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  profileLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#475569',
+    minWidth: 110,
+  },
+  profileValue: {
+    fontSize: 14,
+    color: '#0F172A',
+    fontWeight: '500',
+  },
+  profileSkillsBlock: {
+    marginTop: 4,
+  },
+  skillsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 6,
+  },
+  skillPill: {
+    backgroundColor: '#EFF6FF',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  skillPillText: {
+    fontSize: 12,
+    color: '#2563EB',
+    fontWeight: '500',
+  },
+  emptySkillsText: {
+    fontSize: 13,
+    color: '#94A3B8',
+    fontStyle: 'italic',
+    marginTop: 4,
   },
   statusGrid: {
     flexDirection: 'row',
@@ -384,9 +529,9 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   statusPill: {
-    borderRadius: 20,
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     paddingVertical: 8,
+    borderRadius: 8,
     borderWidth: 1.5,
   },
   statusPillActive: {
@@ -398,78 +543,78 @@ const styles = StyleSheet.create({
   },
   statusSpinner: {
     marginTop: 10,
-  },
-  emptyHistoryText: {
-    fontSize: 13,
-    color: '#94A3B8',
-    fontStyle: 'italic',
+    alignSelf: 'flex-start',
   },
   timelineList: {
-    marginTop: 8,
+    marginTop: 6,
   },
   timelineItem: {
     flexDirection: 'row',
-    minHeight: 48,
+    minHeight: 52,
   },
   timelineMarker: {
-    alignItems: 'center',
     width: 24,
-    marginRight: 10,
+    alignItems: 'center',
   },
   timelineDot: {
     width: 12,
     height: 12,
     borderRadius: 6,
-    marginTop: 4,
+    marginTop: 3,
   },
   timelineLine: {
     width: 2,
     flex: 1,
-    backgroundColor: '#E2E8F0',
-    marginVertical: 4,
+    backgroundColor: '#CBD5E1',
+    marginTop: 2,
+    marginBottom: 2,
   },
   timelineContent: {
     flex: 1,
-    paddingBottom: 12,
+    paddingLeft: 10,
+    paddingBottom: 14,
   },
   timelineStatusTitle: {
     fontSize: 14,
-    fontWeight: '600',
-    marginBottom: 2,
+    fontWeight: '700',
   },
   timelineDateText: {
     fontSize: 12,
-    color: '#94A3B8',
+    color: '#64748B',
+    marginTop: 2,
+  },
+  emptyHistoryText: {
+    fontSize: 14,
+    color: '#64748B',
   },
   notesNotice: {
     backgroundColor: '#ECFDF5',
-    borderColor: '#34D399',
+    borderColor: '#A7F3D0',
     borderWidth: 1,
     borderRadius: 8,
     padding: 10,
     marginBottom: 10,
   },
   notesNoticeText: {
-    color: '#065F46',
+    color: '#059669',
     fontSize: 13,
-    textAlign: 'center',
+    fontWeight: '500',
   },
   notesInput: {
     backgroundColor: '#FFFFFF',
     borderColor: '#CBD5E1',
     borderWidth: 1,
     borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 14,
+    padding: 12,
+    minHeight: 100,
     color: '#0F172A',
-    minHeight: 90,
+    fontSize: 14,
     marginBottom: 12,
   },
   saveNotesButton: {
     backgroundColor: '#2563EB',
-    borderRadius: 10,
-    paddingVertical: 12,
+    borderRadius: 8,
+    paddingVertical: 10,
     alignItems: 'center',
   },
   saveNotesButtonText: {
@@ -486,12 +631,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   deleteButton: {
-    borderColor: '#EF4444',
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingVertical: 12,
-    width: '100%',
-    alignItems: 'center',
+    paddingVertical: 8,
   },
   deleteButtonText: {
     color: '#DC2626',
@@ -499,6 +639,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   buttonDisabled: {
-    opacity: 0.5,
+    opacity: 0.6,
   },
 });

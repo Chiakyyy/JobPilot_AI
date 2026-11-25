@@ -35,7 +35,7 @@ export function useApplications({
 
       let query = supabase
         .from('applications')
-        .select('*, offer:job_offers(id, title, company, location)', { count: 'exact' })
+        .select('*, offer:job_offers(id, title, company, location, user_id)', { count: 'exact' })
         .eq('user_id', user.id)
         .order('updated_at', { ascending: false })
         .range(from, to);
@@ -57,7 +57,7 @@ export function useApplications({
   });
 }
 
-// This hook retrieves full details and history for a single application.
+// This hook retrieves full details and history for a single application across candidates and posters.
 export function useApplication(id: string | undefined) {
   const { user } = useAuth();
 
@@ -69,9 +69,10 @@ export function useApplication(id: string | undefined) {
       }
       const { data, error } = await supabase
         .from('applications')
-        .select('*, offer:job_offers(id, title, company, location, url, description)')
+        .select(
+          '*, offer:job_offers(id, title, company, location, url, description, user_id), applicant:profiles(id, display_name, target_role, experience_level, skills)'
+        )
         .eq('id', id)
-        .eq('user_id', user.id)
         .maybeSingle();
 
       if (error) {
@@ -83,12 +84,12 @@ export function useApplication(id: string | undefined) {
   });
 }
 
-// This hook checks whether an application already exists for a specific job offer.
+// This hook checks whether the current user has already applied to a specific job offer.
 export function useApplicationByOffer(offerId: string | undefined) {
   const { user } = useAuth();
 
   return useQuery({
-    queryKey: ['applicationByOffer', offerId],
+    queryKey: ['applicationByOffer', offerId, user?.id],
     queryFn: async () => {
       if (!offerId || !user?.id) {
         return null;
@@ -104,6 +105,33 @@ export function useApplicationByOffer(offerId: string | undefined) {
         throw error;
       }
       return data as { id: string; status: ApplicationStatus } | null;
+    },
+    enabled: Boolean(offerId && user?.id),
+  });
+}
+
+// This hook retrieves all candidate applications submitted for a specific job offer.
+export function useOfferApplicants(offerId: string | undefined) {
+  const { user } = useAuth();
+
+  return useQuery({
+    queryKey: ['offerApplicants', offerId],
+    queryFn: async () => {
+      if (!offerId || !user?.id) {
+        return [] as Application[];
+      }
+      const { data, error } = await supabase
+        .from('applications')
+        .select(
+          '*, applicant:profiles(id, display_name, target_role, experience_level, skills)'
+        )
+        .eq('offer_id', offerId)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        throw error;
+      }
+      return (data || []) as Application[];
     },
     enabled: Boolean(offerId && user?.id),
   });
@@ -136,7 +164,7 @@ export function useApplicationMutations() {
           applied_at: input.applied_at || new Date().toISOString(),
           status_history: [historyItem],
         })
-        .select('*, offer:job_offers(id, title, company, location)')
+        .select('*, offer:job_offers(id, title, company, location, user_id)')
         .single();
 
       if (error) {
@@ -147,6 +175,7 @@ export function useApplicationMutations() {
     onSuccess: (created) => {
       queryClient.invalidateQueries({ queryKey: ['applications'] });
       queryClient.invalidateQueries({ queryKey: ['applicationByOffer', created.offer_id] });
+      queryClient.invalidateQueries({ queryKey: ['offerApplicants', created.offer_id] });
       queryClient.invalidateQueries({ queryKey: ['dashboardStats'] });
     },
   });
@@ -160,9 +189,8 @@ export function useApplicationMutations() {
 
       const { data: currentApp, error: fetchError } = await supabase
         .from('applications')
-        .select('status_history')
+        .select('status_history, offer_id')
         .eq('id', id)
-        .eq('user_id', user.id)
         .single();
 
       if (fetchError) {
@@ -186,8 +214,9 @@ export function useApplicationMutations() {
           updated_at: new Date().toISOString(),
         })
         .eq('id', id)
-        .eq('user_id', user.id)
-        .select('*, offer:job_offers(id, title, company, location)')
+        .select(
+          '*, offer:job_offers(id, title, company, location, user_id), applicant:profiles(id, display_name, target_role, experience_level, skills)'
+        )
         .single();
 
       if (error) {
@@ -199,6 +228,7 @@ export function useApplicationMutations() {
       queryClient.invalidateQueries({ queryKey: ['applications'] });
       queryClient.invalidateQueries({ queryKey: ['application', updated.id] });
       queryClient.invalidateQueries({ queryKey: ['applicationByOffer', updated.offer_id] });
+      queryClient.invalidateQueries({ queryKey: ['offerApplicants', updated.offer_id] });
       queryClient.invalidateQueries({ queryKey: ['dashboardStats'] });
     },
   });
@@ -216,7 +246,6 @@ export function useApplicationMutations() {
           updated_at: new Date().toISOString(),
         })
         .eq('id', id)
-        .eq('user_id', user.id)
         .select('*')
         .single();
 
@@ -228,6 +257,7 @@ export function useApplicationMutations() {
     onSuccess: (updated) => {
       queryClient.invalidateQueries({ queryKey: ['applications'] });
       queryClient.invalidateQueries({ queryKey: ['application', updated.id] });
+      queryClient.invalidateQueries({ queryKey: ['offerApplicants', updated.offer_id] });
     },
   });
 
@@ -253,6 +283,7 @@ export function useApplicationMutations() {
       queryClient.invalidateQueries({ queryKey: ['application', id] });
       if (offerId) {
         queryClient.invalidateQueries({ queryKey: ['applicationByOffer', offerId] });
+        queryClient.invalidateQueries({ queryKey: ['offerApplicants', offerId] });
       }
       queryClient.invalidateQueries({ queryKey: ['dashboardStats'] });
     },

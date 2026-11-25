@@ -1,4 +1,4 @@
-// This file contains type definitions for database records and candidate profiles.
+// This file contains type definitions for database records, marketplace offers and candidate profiles.
 
 export interface Profile {
   id: string;
@@ -15,7 +15,7 @@ export interface Profile {
 
 export type ProfileUpdate = Partial<Omit<Profile, 'id' | 'created_at' | 'updated_at'>>;
 
-// This interface defines the schema for a job offer record.
+// This interface defines the schema for a marketplace job offer record.
 export interface JobOffer {
   id: string;
   user_id: string;
@@ -27,6 +27,7 @@ export interface JobOffer {
   notes: string | null;
   created_at: string;
   updated_at: string;
+  poster?: Pick<Profile, 'id' | 'display_name'> | null;
 }
 
 export type JobOfferInput = {
@@ -47,7 +48,7 @@ export interface StatusHistoryItem {
   changed_at: string;
 }
 
-// This interface defines the schema for a job application record.
+// This interface defines the schema for a candidate job application record.
 export interface Application {
   id: string;
   user_id: string;
@@ -58,7 +59,8 @@ export interface Application {
   status_history: StatusHistoryItem[];
   created_at: string;
   updated_at: string;
-  offer?: Pick<JobOffer, 'id' | 'title' | 'company' | 'location'>;
+  offer?: Pick<JobOffer, 'id' | 'title' | 'company' | 'location' | 'user_id'> | null;
+  applicant?: Pick<Profile, 'id' | 'display_name' | 'target_role' | 'experience_level' | 'skills'> | null;
 }
 
 export type ApplicationInput = {
