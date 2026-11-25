@@ -82,3 +82,59 @@ export interface UserCv {
   created_at: string;
   updated_at: string;
 }
+
+// This type represents the available ai assistant feature identifiers.
+export type AiFeature = 'cv_analysis' | 'interview_prep';
+
+// This type represents the execution lifecycle status of an ai request.
+export type AiUsageStatus = 'pending' | 'completed' | 'failed';
+
+// This interface defines the schema for an ai usage and quota tracking record.
+export interface AiUsageLog {
+  id: string;
+  user_id: string;
+  feature: AiFeature;
+  offer_id: string | null;
+  idempotency_key: string;
+  usage_date: string;
+  status: AiUsageStatus;
+  request_id: string;
+  duration_ms: number | null;
+  created_at: string;
+}
+
+// This interface represents the remaining daily quotas for the authenticated user.
+export interface AiQuotaInfo {
+  cvAnalysisUsed: number;
+  cvAnalysisMax: number;
+  cvAnalysisRemaining: number;
+  interviewPrepUsed: number;
+  interviewPrepMax: number;
+  interviewPrepRemaining: number;
+}
+
+// This interface defines the structured output returned by cv to offer alignment analysis.
+export interface CvAnalysisResult {
+  detected_language: 'fr' | 'en';
+  matched_skills: string[];
+  missing_skills: string[];
+  strengths: string[];
+  gaps_and_risks: string[];
+  actionable_recommendations: string[];
+  disclaimer: string;
+}
+
+// This interface defines an individual interview preparation practice question.
+export interface InterviewQuestion {
+  question: string;
+  category: 'Technique' | 'RH';
+  difficulty: 'Facile' | 'Moyen' | 'Difficile';
+  rationale: string;
+  answer_guidelines: string[];
+}
+
+// This interface defines the structured output returned by interview preparation generation.
+export interface InterviewPrepResult {
+  questions: InterviewQuestion[];
+  disclaimer: string;
+}

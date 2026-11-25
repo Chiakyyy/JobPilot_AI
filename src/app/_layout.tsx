@@ -113,6 +113,26 @@ function RootNavigationLayout() {
             headerTitleStyle: { color: '#0F172A', fontWeight: '600' },
           }}
         />
+        <Stack.Screen
+          name="ai/analysis"
+          options={{
+            headerShown: true,
+            title: 'Analyse CV & Offre',
+            headerStyle: { backgroundColor: '#FFFFFF' },
+            headerTintColor: '#0F172A',
+            headerTitleStyle: { color: '#0F172A', fontWeight: '600' },
+          }}
+        />
+        <Stack.Screen
+          name="ai/interview"
+          options={{
+            headerShown: true,
+            title: 'Préparation Entretien',
+            headerStyle: { backgroundColor: '#FFFFFF' },
+            headerTintColor: '#0F172A',
+            headerTitleStyle: { color: '#0F172A', fontWeight: '600' },
+          }}
+        />
       </Stack>
     </View>
   );

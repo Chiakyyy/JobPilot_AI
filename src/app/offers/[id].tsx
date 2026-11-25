@@ -321,8 +321,10 @@ export default function OfferDetailScreen() {
             <Text style={styles.featureDesc}>
               Évaluez l’adéquation du profil et identifiez les compétences recherchées.
             </Text>
-            <Pressable style={styles.disabledButton} disabled>
-              <Text style={styles.disabledButtonText}>Bientôt disponible — Étape 4/5</Text>
+            <Pressable
+              style={styles.aiActionButton}
+              onPress={() => router.push({ pathname: '/ai/analysis', params: { offerId: offer.id } } as never)}>
+              <Text style={styles.aiActionButtonText}>Lancer l’analyse IA ➔</Text>
             </Pressable>
           </View>
 
@@ -331,8 +333,10 @@ export default function OfferDetailScreen() {
             <Text style={styles.featureDesc}>
               Générez des questions types et des suggestions de réponses ciblées.
             </Text>
-            <Pressable style={styles.disabledButton} disabled>
-              <Text style={styles.disabledButtonText}>Bientôt disponible — Étape 4/5</Text>
+            <Pressable
+              style={styles.aiActionButton}
+              onPress={() => router.push({ pathname: '/ai/interview', params: { offerId: offer.id } } as never)}>
+              <Text style={styles.aiActionButtonText}>Préparer mon entretien ➔</Text>
             </Pressable>
           </View>
         </View>
@@ -737,6 +741,21 @@ const styles = StyleSheet.create({
   disabledButtonText: {
     color: '#64748B',
     fontSize: 12,
+    fontWeight: '600',
+  },
+  aiActionButton: {
+    backgroundColor: '#EFF6FF',
+    borderColor: '#BFDBFE',
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  aiActionButtonText: {
+    color: '#2563EB',
+    fontSize: 13,
     fontWeight: '600',
   },
   bodyText: {
