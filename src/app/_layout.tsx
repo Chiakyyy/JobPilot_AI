@@ -1,3 +1,4 @@
+import { QueryClientProvider } from '@tanstack/react-query';
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import React, { useEffect } from 'react';
@@ -5,6 +6,7 @@ import { ActivityIndicator, BackHandler, StyleSheet, View, useColorScheme } from
 import 'react-native-url-polyfill/auto';
 
 import { AuthProvider, useAuth } from '@/context/AuthContext';
+import { queryClient } from '@/lib/queryClient';
 
 // This call prevents the native splash screen from hiding automatically during initialization.
 SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -71,21 +73,53 @@ function RootNavigationLayout() {
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen
+          name="offers/new"
+          options={{
+            headerShown: true,
+            title: 'Nouvelle offre',
+            headerStyle: { backgroundColor: '#FFFFFF' },
+            headerTintColor: '#0F172A',
+            headerTitleStyle: { color: '#0F172A', fontWeight: '600' },
+          }}
+        />
+        <Stack.Screen
+          name="offers/[id]"
+          options={{
+            headerShown: true,
+            title: 'Détail de l’offre',
+            headerStyle: { backgroundColor: '#FFFFFF' },
+            headerTintColor: '#0F172A',
+            headerTitleStyle: { color: '#0F172A', fontWeight: '600' },
+          }}
+        />
+        <Stack.Screen
+          name="applications/[id]"
+          options={{
+            headerShown: true,
+            title: 'Détail candidature',
+            headerStyle: { backgroundColor: '#FFFFFF' },
+            headerTintColor: '#0F172A',
+            headerTitleStyle: { color: '#0F172A', fontWeight: '600' },
+          }}
+        />
       </Stack>
     </View>
   );
 }
 
-// This root layout component provides global theme and authentication context.
+// This root layout component provides global theme, query client and authentication context.
 export default function RootLayout() {
   const colorScheme = useColorScheme();
 
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <AuthProvider>
-        <RootNavigationLayout />
-      </AuthProvider>
-    </ThemeProvider>
+    <QueryClientProvider client={queryClient}>
+      <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+        <AuthProvider>
+          <RootNavigationLayout />
+        </AuthProvider>
+      </ThemeProvider>
+    </QueryClientProvider>
   );
 }
 
