@@ -105,12 +105,21 @@ This document provides a technical overview of the architecture, engineering dec
 > **Answer:**
 > We implement root layout route guards using Expo Router's `useSegments()` and `useRouter()`. While initial session recovery runs (`isLoading: true`), we hold a clean splash/loading indicator so unauthenticated screens never flash. On logout, we call `router.replace('/(auth)/login')`, which clears the navigation stack so the back button cannot return to protected tabs. Additionally, on Android, an event listener on `BackHandler` prevents backward traversal into authenticated routes.
 
+### Q5: What is the difference between PostgreSQL Table Privileges (`GRANT`) and Row-Level Security (`RLS`), and how do you ensure graceful UI degradation on mobile?
+> **Answer:**
+> In PostgreSQL and Supabase, access control operates in two distinct tiers:
+> - **Table-Level Privileges (`GRANT`)**: Grants determine whether a database role (such as `authenticated` or `anon`) is allowed to execute specific SQL statements (`SELECT`, `INSERT`, `UPDATE`, `DELETE`) on the relation at all. If `GRANT ... ON TABLE public.profiles TO authenticated` is missing, PostgreSQL immediately rejects requests with `permission denied for table profiles` before evaluating any row.
+> - **Row-Level Security (`RLS`)**: Once table privileges are granted, RLS acts as a row filter determining *which rows* the role can access based on security expressions (e.g. `auth.uid() = id`). Both tiers are required for secure operation.
+> 
+> Regarding **Graceful UI Degradation**:
+> Root session management must always be decoupled from feature-level data queries. If a table query fails (due to network timeout, missing privileges, or schema sync issues), the UI must display an inline error state without removing critical session actions. The logout button (`signOut`) must remain rendered and interactive in all states (loading, empty, or error) so the user is never trapped in a broken authenticated view.
+
 ---
 
 ## 4. Database Schema Reference
 
 ```sql
--- Profiles table structure
+-- Profiles table structure and permissions
 TABLE public.profiles (
   id uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   display_name text,
@@ -123,4 +132,7 @@ TABLE public.profiles (
   created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
   updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
 );
+
+GRANT USAGE ON SCHEMA public TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.profiles TO authenticated;
 ```

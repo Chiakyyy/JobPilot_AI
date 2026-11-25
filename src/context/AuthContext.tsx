@@ -36,6 +36,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.error('Failed to load profile record', error.message);
         return;
       }
+
+      if (!data) {
+        const { data: createdProfile, error: createError } = await supabase
+          .from('profiles')
+          .upsert({ id: userId })
+          .select('*')
+          .maybeSingle();
+
+        if (createError) {
+          console.error('Failed to auto create profile record', createError.message);
+          return;
+        }
+
+        setProfile(createdProfile as Profile | null);
+        return;
+      }
+
       setProfile(data as Profile | null);
     } catch (err) {
       console.error('Unexpected error while fetching profile', err);

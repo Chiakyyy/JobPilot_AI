@@ -72,7 +72,26 @@ export default function ProfileScreen() {
         return;
       }
 
-      if (data) {
+      if (!data) {
+        const { data: createdRecord } = await supabase
+          .from('profiles')
+          .upsert({ id: user.id })
+          .select('*')
+          .maybeSingle();
+
+        if (createdRecord) {
+          const profileRecord = createdRecord as Profile;
+          reset({
+            display_name: profileRecord.display_name || '',
+            target_role: profileRecord.target_role || '',
+            location: profileRecord.location || '',
+            skills: (profileRecord.skills || []).join(', '),
+            experience_level: profileRecord.experience_level || '',
+            education_summary: profileRecord.education_summary || '',
+            experience_summary: profileRecord.experience_summary || '',
+          });
+        }
+      } else {
         const profileRecord = data as Profile;
         reset({
           display_name: profileRecord.display_name || '',
@@ -166,29 +185,6 @@ export default function ProfileScreen() {
     );
   };
 
-  // This condition displays a loading spinner during initial data fetch.
-  if (loading) {
-    return (
-      <View style={styles.centerContainer}>
-        <ActivityIndicator size="large" color="#2563EB" />
-        <Text style={styles.loadingText}>Chargement de votre profil...</Text>
-      </View>
-    );
-  }
-
-  // This condition renders an error notice with a retry trigger.
-  if (loadError) {
-    return (
-      <View style={styles.centerContainer}>
-        <Text style={styles.errorTitle}>Erreur de chargement</Text>
-        <Text style={styles.errorDescription}>{loadError}</Text>
-        <Pressable style={styles.retryButton} onPress={fetchProfileDetails}>
-          <Text style={styles.retryButtonText}>Réessayer</Text>
-        </Pressable>
-      </View>
-    );
-  }
-
   const isIncomplete = !currentRole || !currentSkills;
 
   return (
@@ -196,213 +192,230 @@ export default function ProfileScreen() {
       style={styles.keyboardView}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-        {isIncomplete && (
-          <View style={styles.warningBanner}>
-            <Text style={styles.warningTitle}>Profil incomplet</Text>
-            <Text style={styles.warningText}>
-              Remplissez au minimum votre titre recherché et vos compétences pour débloquer les
-              recommandations personnalisées d’offres d’emploi.
-            </Text>
+        {loading ? (
+          <View style={styles.stateCard}>
+            <ActivityIndicator size="large" color="#2563EB" />
+            <Text style={styles.loadingText}>Chargement de votre profil...</Text>
           </View>
+        ) : loadError ? (
+          <View style={styles.stateCard}>
+            <Text style={styles.errorTitle}>Erreur de chargement</Text>
+            <Text style={styles.errorDescription}>{loadError}</Text>
+            <Pressable style={styles.retryButton} onPress={fetchProfileDetails}>
+              <Text style={styles.retryButtonText}>Réessayer</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <>
+            {isIncomplete && (
+              <View style={styles.warningBanner}>
+                <Text style={styles.warningTitle}>Profil incomplet</Text>
+                <Text style={styles.warningText}>
+                  Remplissez au minimum votre titre recherché et vos compétences pour débloquer les
+                  recommandations personnalisées d’offres d’emploi.
+                </Text>
+              </View>
+            )}
+
+            {saveSuccess && (
+              <View style={styles.successBanner}>
+                <Text style={styles.successBannerText}>Profil mis à jour avec succès.</Text>
+              </View>
+            )}
+
+            {saveError && (
+              <View style={styles.errorBanner}>
+                <Text style={styles.errorBannerText}>{saveError}</Text>
+              </View>
+            )}
+
+            <View style={styles.formCard}>
+              <Text style={styles.sectionTitle}>Informations principales</Text>
+
+              <View style={styles.formGroup}>
+                <Text style={styles.label}>Nom affiché</Text>
+                <Controller
+                  control={control}
+                  name="display_name"
+                  render={({ field: { onChange, onBlur, value } }) => (
+                    <TextInput
+                      style={[styles.input, errors.display_name && styles.inputError]}
+                      placeholder="ex. Jean Dupont"
+                      placeholderTextColor="#94A3B8"
+                      onBlur={onBlur}
+                      onChangeText={onChange}
+                      value={value}
+                      editable={!isSubmitting}
+                    />
+                  )}
+                />
+                {errors.display_name && (
+                  <Text style={styles.fieldError}>{errors.display_name.message}</Text>
+                )}
+              </View>
+
+              <View style={styles.formGroup}>
+                <Text style={styles.label}>Titre recherché</Text>
+                <Controller
+                  control={control}
+                  name="target_role"
+                  render={({ field: { onChange, onBlur, value } }) => (
+                    <TextInput
+                      style={[styles.input, errors.target_role && styles.inputError]}
+                      placeholder="ex. Développeur React Native Senior"
+                      placeholderTextColor="#94A3B8"
+                      onBlur={onBlur}
+                      onChangeText={onChange}
+                      value={value}
+                      editable={!isSubmitting}
+                    />
+                  )}
+                />
+                {errors.target_role && (
+                  <Text style={styles.fieldError}>{errors.target_role.message}</Text>
+                )}
+              </View>
+
+              <View style={styles.formGroup}>
+                <Text style={styles.label}>Localisation</Text>
+                <Controller
+                  control={control}
+                  name="location"
+                  render={({ field: { onChange, onBlur, value } }) => (
+                    <TextInput
+                      style={[styles.input, errors.location && styles.inputError]}
+                      placeholder="ex. Paris, France (Télétravail accepté)"
+                      placeholderTextColor="#94A3B8"
+                      onBlur={onBlur}
+                      onChangeText={onChange}
+                      value={value}
+                      editable={!isSubmitting}
+                    />
+                  )}
+                />
+                {errors.location && (
+                  <Text style={styles.fieldError}>{errors.location.message}</Text>
+                )}
+              </View>
+
+              <View style={styles.formGroup}>
+                <Text style={styles.label}>Niveau d’expérience</Text>
+                <Controller
+                  control={control}
+                  name="experience_level"
+                  render={({ field: { onChange, onBlur, value } }) => (
+                    <TextInput
+                      style={[styles.input, errors.experience_level && styles.inputError]}
+                      placeholder="ex. Débutant, Intermédiaire, Senior, Expert"
+                      placeholderTextColor="#94A3B8"
+                      onBlur={onBlur}
+                      onChangeText={onChange}
+                      value={value}
+                      editable={!isSubmitting}
+                    />
+                  )}
+                />
+                {errors.experience_level && (
+                  <Text style={styles.fieldError}>{errors.experience_level.message}</Text>
+                )}
+              </View>
+
+              <View style={styles.formGroup}>
+                <Text style={styles.label}>Compétences (séparées par des virgules)</Text>
+                <Controller
+                  control={control}
+                  name="skills"
+                  render={({ field: { onChange, onBlur, value } }) => (
+                    <TextInput
+                      style={[styles.input, errors.skills && styles.inputError]}
+                      placeholder="ex. TypeScript, React Native, Supabase, Node.js"
+                      placeholderTextColor="#94A3B8"
+                      onBlur={onBlur}
+                      onChangeText={onChange}
+                      value={value}
+                      editable={!isSubmitting}
+                    />
+                  )}
+                />
+                {errors.skills && <Text style={styles.fieldError}>{errors.skills.message}</Text>}
+              </View>
+
+              <Text style={styles.sectionTitle}>Parcours et expérience</Text>
+
+              <View style={styles.formGroup}>
+                <Text style={styles.label}>Formation</Text>
+                <Controller
+                  control={control}
+                  name="education_summary"
+                  render={({ field: { onChange, onBlur, value } }) => (
+                    <TextInput
+                      style={[styles.textArea, errors.education_summary && styles.inputError]}
+                      placeholder="Diplômes, certifications ou formations suivies..."
+                      placeholderTextColor="#94A3B8"
+                      multiline
+                      numberOfLines={3}
+                      textAlignVertical="top"
+                      onBlur={onBlur}
+                      onChangeText={onChange}
+                      value={value || ''}
+                      editable={!isSubmitting}
+                    />
+                  )}
+                />
+                {errors.education_summary && (
+                  <Text style={styles.fieldError}>{errors.education_summary.message}</Text>
+                )}
+              </View>
+
+              <View style={styles.formGroup}>
+                <Text style={styles.label}>Expérience professionnelle</Text>
+                <Controller
+                  control={control}
+                  name="experience_summary"
+                  render={({ field: { onChange, onBlur, value } }) => (
+                    <TextInput
+                      style={[styles.textArea, errors.experience_summary && styles.inputError]}
+                      placeholder="Résumé de vos postes précédents et réalisations marquantes..."
+                      placeholderTextColor="#94A3B8"
+                      multiline
+                      numberOfLines={4}
+                      textAlignVertical="top"
+                      onBlur={onBlur}
+                      onChangeText={onChange}
+                      value={value || ''}
+                      editable={!isSubmitting}
+                    />
+                  )}
+                />
+                {errors.experience_summary && (
+                  <Text style={styles.fieldError}>{errors.experience_summary.message}</Text>
+                )}
+              </View>
+
+              <Pressable
+                style={[styles.saveButton, isSubmitting && styles.buttonDisabled]}
+                onPress={() => handleSubmit(onSubmit)()}
+                disabled={isSubmitting}>
+                {isSubmitting ? (
+                  <ActivityIndicator color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.saveButtonText}>Enregistrer mon profil</Text>
+                )}
+              </Pressable>
+            </View>
+          </>
         )}
-
-        {saveSuccess && (
-          <View style={styles.successBanner}>
-            <Text style={styles.successBannerText}>Profil mis à jour avec succès.</Text>
-          </View>
-        )}
-
-        {saveError && (
-          <View style={styles.errorBanner}>
-            <Text style={styles.errorBannerText}>{saveError}</Text>
-          </View>
-        )}
-
-        <View style={styles.formCard}>
-          <Text style={styles.sectionTitle}>Informations principales</Text>
-
-          <View style={styles.formGroup}>
-            <Text style={styles.label}>Nom affiché</Text>
-            <Controller
-              control={control}
-              name="display_name"
-              render={({ field: { onChange, onBlur, value } }) => (
-                <TextInput
-                  style={[styles.input, errors.display_name && styles.inputError]}
-                  placeholder="ex. Jean Dupont"
-                  placeholderTextColor="#94A3B8"
-                  onBlur={onBlur}
-                  onChangeText={onChange}
-                  value={value}
-                  editable={!isSubmitting}
-                />
-              )}
-            />
-            {errors.display_name && (
-              <Text style={styles.fieldError}>{errors.display_name.message}</Text>
-            )}
-          </View>
-
-          <View style={styles.formGroup}>
-            <Text style={styles.label}>Titre recherché</Text>
-            <Controller
-              control={control}
-              name="target_role"
-              render={({ field: { onChange, onBlur, value } }) => (
-                <TextInput
-                  style={[styles.input, errors.target_role && styles.inputError]}
-                  placeholder="ex. Développeur React Native Senior"
-                  placeholderTextColor="#94A3B8"
-                  onBlur={onBlur}
-                  onChangeText={onChange}
-                  value={value}
-                  editable={!isSubmitting}
-                />
-              )}
-            />
-            {errors.target_role && (
-              <Text style={styles.fieldError}>{errors.target_role.message}</Text>
-            )}
-          </View>
-
-          <View style={styles.formGroup}>
-            <Text style={styles.label}>Localisation</Text>
-            <Controller
-              control={control}
-              name="location"
-              render={({ field: { onChange, onBlur, value } }) => (
-                <TextInput
-                  style={[styles.input, errors.location && styles.inputError]}
-                  placeholder="ex. Paris, France (Télétravail accepté)"
-                  placeholderTextColor="#94A3B8"
-                  onBlur={onBlur}
-                  onChangeText={onChange}
-                  value={value}
-                  editable={!isSubmitting}
-                />
-              )}
-            />
-            {errors.location && (
-              <Text style={styles.fieldError}>{errors.location.message}</Text>
-            )}
-          </View>
-
-          <View style={styles.formGroup}>
-            <Text style={styles.label}>Niveau d’expérience</Text>
-            <Controller
-              control={control}
-              name="experience_level"
-              render={({ field: { onChange, onBlur, value } }) => (
-                <TextInput
-                  style={[styles.input, errors.experience_level && styles.inputError]}
-                  placeholder="ex. Débutant, Intermédiaire, Senior, Expert"
-                  placeholderTextColor="#94A3B8"
-                  onBlur={onBlur}
-                  onChangeText={onChange}
-                  value={value}
-                  editable={!isSubmitting}
-                />
-              )}
-            />
-            {errors.experience_level && (
-              <Text style={styles.fieldError}>{errors.experience_level.message}</Text>
-            )}
-          </View>
-
-          <View style={styles.formGroup}>
-            <Text style={styles.label}>Compétences (séparées par des virgules)</Text>
-            <Controller
-              control={control}
-              name="skills"
-              render={({ field: { onChange, onBlur, value } }) => (
-                <TextInput
-                  style={[styles.input, errors.skills && styles.inputError]}
-                  placeholder="ex. TypeScript, React Native, Supabase, Node.js"
-                  placeholderTextColor="#94A3B8"
-                  onBlur={onBlur}
-                  onChangeText={onChange}
-                  value={value}
-                  editable={!isSubmitting}
-                />
-              )}
-            />
-            {errors.skills && <Text style={styles.fieldError}>{errors.skills.message}</Text>}
-          </View>
-
-          <Text style={styles.sectionTitle}>Parcours et expérience</Text>
-
-          <View style={styles.formGroup}>
-            <Text style={styles.label}>Formation</Text>
-            <Controller
-              control={control}
-              name="education_summary"
-              render={({ field: { onChange, onBlur, value } }) => (
-                <TextInput
-                  style={[styles.textArea, errors.education_summary && styles.inputError]}
-                  placeholder="Diplômes, certifications ou formations suivies..."
-                  placeholderTextColor="#94A3B8"
-                  multiline
-                  numberOfLines={3}
-                  textAlignVertical="top"
-                  onBlur={onBlur}
-                  onChangeText={onChange}
-                  value={value || ''}
-                  editable={!isSubmitting}
-                />
-              )}
-            />
-            {errors.education_summary && (
-              <Text style={styles.fieldError}>{errors.education_summary.message}</Text>
-            )}
-          </View>
-
-          <View style={styles.formGroup}>
-            <Text style={styles.label}>Expérience professionnelle</Text>
-            <Controller
-              control={control}
-              name="experience_summary"
-              render={({ field: { onChange, onBlur, value } }) => (
-                <TextInput
-                  style={[styles.textArea, errors.experience_summary && styles.inputError]}
-                  placeholder="Résumé de vos postes précédents et réalisations marquantes..."
-                  placeholderTextColor="#94A3B8"
-                  multiline
-                  numberOfLines={4}
-                  textAlignVertical="top"
-                  onBlur={onBlur}
-                  onChangeText={onChange}
-                  value={value || ''}
-                  editable={!isSubmitting}
-                />
-              )}
-            />
-            {errors.experience_summary && (
-              <Text style={styles.fieldError}>{errors.experience_summary.message}</Text>
-            )}
-          </View>
-
-          <Pressable
-            style={[styles.saveButton, isSubmitting && styles.buttonDisabled]}
-            onPress={() => handleSubmit(onSubmit)()}
-            disabled={isSubmitting}>
-            {isSubmitting ? (
-              <ActivityIndicator color="#FFFFFF" />
-            ) : (
-              <Text style={styles.saveButtonText}>Enregistrer mon profil</Text>
-            )}
-          </Pressable>
-        </View>
 
         <View style={styles.accountCard}>
           <Text style={styles.accountTitle}>Compte connecté</Text>
-          <Text style={styles.accountEmail}>{user?.email}</Text>
+          <Text style={styles.accountEmail}>{user?.email || 'Non renseigné'}</Text>
 
           <Pressable
             style={[styles.logoutButton, isLoggingOut && styles.buttonDisabled]}
             onPress={handleLogout}
             disabled={isLoggingOut}>
             {isLoggingOut ? (
-              <ActivityIndicator color="#EF4444" />
+              <ActivityIndicator color="#DC2626" />
             ) : (
               <Text style={styles.logoutButtonText}>Se déconnecter</Text>
             )}
@@ -423,12 +436,19 @@ const styles = StyleSheet.create({
     padding: 16,
     paddingBottom: 40,
   },
-  centerContainer: {
-    flex: 1,
-    justifyContent: 'center',
+  stateCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 32,
     alignItems: 'center',
-    padding: 24,
-    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    marginBottom: 20,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
   },
   loadingText: {
     marginTop: 12,

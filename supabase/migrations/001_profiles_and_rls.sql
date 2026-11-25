@@ -40,7 +40,7 @@ begin
   on conflict (id) do nothing;
   return new;
 end;
-$$ language plpgsql security definer;
+$$ language plpgsql security definer set search_path = public;
 
 -- This trigger calls the profile creation function after user registration.
 drop trigger if exists on_auth_user_created on auth.users;
@@ -48,30 +48,42 @@ create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
 
+-- This grants schema and table permissions to authenticated users.
+grant usage on schema public to authenticated;
+grant select, insert, update, delete on table public.profiles to authenticated;
+
 -- This command enables row level security on the profiles table.
 alter table public.profiles enable row level security;
 
 -- This policy allows users to select only their own profile.
+drop policy if exists "users can view their own profile" on public.profiles;
 create policy "users can view their own profile"
   on public.profiles
   for select
+  to authenticated
   using (auth.uid() = id);
 
 -- This policy allows users to insert their own profile.
+drop policy if exists "users can insert their own profile" on public.profiles;
 create policy "users can insert their own profile"
   on public.profiles
   for insert
+  to authenticated
   with check (auth.uid() = id);
 
 -- This policy allows users to update only their own profile.
+drop policy if exists "users can update their own profile" on public.profiles;
 create policy "users can update their own profile"
   on public.profiles
   for update
+  to authenticated
   using (auth.uid() = id)
   with check (auth.uid() = id);
 
 -- This policy allows users to delete only their own profile.
+drop policy if exists "users can delete their own profile" on public.profiles;
 create policy "users can delete their own profile"
   on public.profiles
   for delete
+  to authenticated
   using (auth.uid() = id);
