@@ -1,13 +1,13 @@
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { useEffect } from 'react';
+import React, { useEffect } from 'react';
 import { ActivityIndicator, BackHandler, StyleSheet, View, useColorScheme } from 'react-native';
 import 'react-native-url-polyfill/auto';
 
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 
 // This call prevents the native splash screen from hiding automatically during initialization.
-SplashScreen.preventAutoHideAsync().catch(() => { });
+SplashScreen.preventAutoHideAsync().catch(() => {});
 
 // This component handles authentication guards and navigation redirects.
 function RootNavigationLayout() {
@@ -15,13 +15,20 @@ function RootNavigationLayout() {
   const segments = useSegments();
   const router = useRouter();
 
+  // This effect hides the native splash screen once authentication initialization is complete.
+  useEffect(() => {
+    if (!isLoading) {
+      SplashScreen.hideAsync().catch(() => {});
+    }
+  }, [isLoading]);
+
   // This effect synchronizes route protection with user authentication state.
   useEffect(() => {
     if (isLoading) {
       return;
     }
 
-    const inAuthGroup = segments[0] === '(auth)';
+    const inAuthGroup = (segments as string[])[0] === '(auth)';
 
     if (!session && !inAuthGroup) {
       router.replace('/(auth)/login');
@@ -33,7 +40,7 @@ function RootNavigationLayout() {
   // This effect intercepts the hardware back button when the user is logged out.
   useEffect(() => {
     const handleBackPress = () => {
-      const inAuthGroup = segments[0] === '(auth)';
+      const inAuthGroup = (segments as string[])[0] === '(auth)';
       if (!session && inAuthGroup) {
         return false;
       }
@@ -60,10 +67,12 @@ function RootNavigationLayout() {
   }
 
   return (
-    <Stack screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-    </Stack>
+    <View style={styles.rootContainer}>
+      <Stack screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      </Stack>
+    </View>
   );
 }
 
@@ -80,12 +89,16 @@ export default function RootLayout() {
   );
 }
 
-// This stylesheet defines display dimensions for the splash loading container.
+// This stylesheet defines display dimensions for the splash loading and root container.
 const styles = StyleSheet.create({
+  rootContainer: {
+    flex: 1,
+    backgroundColor: '#F8FAFC',
+  },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#0F172A',
+    backgroundColor: '#F8FAFC',
   },
 });

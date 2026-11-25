@@ -183,7 +183,7 @@ export default function RegisterScreen() {
                 <TextInput
                   style={[styles.input, errors.email && styles.inputError]}
                   placeholder="nom@exemple.fr"
-                  placeholderTextColor="#64748B"
+                  placeholderTextColor="#94A3B8"
                   autoCapitalize="none"
                   keyboardType="email-address"
                   autoComplete="email"
@@ -206,7 +206,7 @@ export default function RegisterScreen() {
                 <TextInput
                   style={[styles.input, errors.password && styles.inputError]}
                   placeholder="Minimum 8 caractères"
-                  placeholderTextColor="#64748B"
+                  placeholderTextColor="#94A3B8"
                   secureTextEntry
                   autoCapitalize="none"
                   autoComplete="new-password"
@@ -232,7 +232,7 @@ export default function RegisterScreen() {
                 <TextInput
                   style={[styles.input, errors.confirmPassword && styles.inputError]}
                   placeholder="Répétez votre mot de passe"
-                  placeholderTextColor="#64748B"
+                  placeholderTextColor="#94A3B8"
                   secureTextEntry
                   autoCapitalize="none"
                   autoComplete="new-password"
@@ -277,7 +277,7 @@ export default function RegisterScreen() {
 const styles = StyleSheet.create({
   keyboardView: {
     flex: 1,
-    backgroundColor: '#0B1120',
+    backgroundColor: '#F8FAFC',
   },
   scrollContent: {
     flexGrow: 1,
@@ -288,14 +288,19 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     padding: 20,
-    backgroundColor: '#0B1120',
+    backgroundColor: '#F8FAFC',
   },
   card: {
-    backgroundColor: '#1E293B',
+    backgroundColor: '#FFFFFF',
     borderRadius: 16,
     padding: 24,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: '#E2E8F0',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
   },
   header: {
     marginBottom: 20,
@@ -304,65 +309,65 @@ const styles = StyleSheet.create({
   brandTitle: {
     fontSize: 24,
     fontWeight: '700',
-    color: '#38BDF8',
+    color: '#2563EB',
     marginBottom: 6,
     textAlign: 'center',
   },
   screenTitle: {
     fontSize: 20,
     fontWeight: '600',
-    color: '#F8FAFC',
+    color: '#0F172A',
     marginBottom: 4,
     textAlign: 'center',
   },
   subtitle: {
     fontSize: 14,
-    color: '#94A3B8',
+    color: '#475569',
     textAlign: 'center',
   },
   confirmDescription: {
     fontSize: 15,
-    color: '#E2E8F0',
+    color: '#0F172A',
     marginTop: 12,
     textAlign: 'center',
   },
   highlightEmail: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#38BDF8',
+    color: '#2563EB',
     marginVertical: 8,
     textAlign: 'center',
   },
   confirmHint: {
     fontSize: 13,
-    color: '#94A3B8',
+    color: '#64748B',
     lineHeight: 18,
     textAlign: 'center',
     marginBottom: 20,
   },
   successBanner: {
-    backgroundColor: '#064E3B',
-    borderColor: '#059669',
+    backgroundColor: '#ECFDF5',
+    borderColor: '#34D399',
     borderWidth: 1,
     borderRadius: 8,
     padding: 12,
     marginBottom: 16,
   },
   successBannerText: {
-    color: '#D1FAE5',
+    color: '#065F46',
     fontSize: 13,
     textAlign: 'center',
   },
   errorBanner: {
-    backgroundColor: '#7F1D1D',
-    borderColor: '#DC2626',
+    backgroundColor: '#FEF2F2',
+    borderColor: '#F87171',
     borderWidth: 1,
     borderRadius: 8,
     padding: 12,
     marginBottom: 16,
   },
   errorBannerText: {
-    color: '#FEE2E2',
+    color: '#B91C1C',
     fontSize: 14,
     lineHeight: 20,
   },
@@ -372,24 +377,25 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 14,
     fontWeight: '500',
-    color: '#E2E8F0',
+    color: '#0F172A',
     marginBottom: 8,
   },
   input: {
-    backgroundColor: '#0F172A',
-    borderColor: '#334155',
+    backgroundColor: '#FFFFFF',
+    borderColor: '#CBD5E1',
     borderWidth: 1,
     borderRadius: 10,
     paddingHorizontal: 14,
     paddingVertical: 12,
+    minHeight: 48,
     fontSize: 15,
-    color: '#F8FAFC',
+    color: '#0F172A',
   },
   inputError: {
     borderColor: '#EF4444',
   },
   fieldError: {
-    color: '#F87171',
+    color: '#DC2626',
     fontSize: 12,
     marginTop: 6,
   },
@@ -422,7 +428,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   backToLoginText: {
-    color: '#94A3B8',
+    color: '#64748B',
     fontSize: 14,
   },
   buttonDisabled: {
@@ -441,11 +447,11 @@ const styles = StyleSheet.create({
   },
   footerText: {
     fontSize: 14,
-    color: '#94A3B8',
+    color: '#64748B',
   },
   signInLink: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#38BDF8',
+    color: '#2563EB',
   },
 });

@@ -1,30 +1,26 @@
 import { Tabs } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import React from 'react';
-import { useColorScheme } from 'react-native';
 
 // This layout configures the bottom tab bar with the four primary application sections.
 export default function TabLayout() {
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === 'dark';
-
   return (
     <Tabs
       screenOptions={{
         headerShown: true,
         headerStyle: {
-          backgroundColor: isDark ? '#0F172A' : '#1E293B',
+          backgroundColor: '#FFFFFF',
         },
         headerTitleStyle: {
-          color: '#F8FAFC',
+          color: '#0F172A',
           fontWeight: '600',
         },
         tabBarStyle: {
-          backgroundColor: isDark ? '#0F172A' : '#1E293B',
-          borderTopColor: '#334155',
+          backgroundColor: '#FFFFFF',
+          borderTopColor: '#E2E8F0',
         },
-        tabBarActiveTintColor: '#38BDF8',
-        tabBarInactiveTintColor: '#94A3B8',
+        tabBarActiveTintColor: '#2563EB',
+        tabBarInactiveTintColor: '#64748B',
       }}>
       <Tabs.Screen
         name="index"

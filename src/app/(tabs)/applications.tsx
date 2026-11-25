@@ -24,7 +24,7 @@ export default function ApplicationsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0B1120',
+    backgroundColor: '#F8FAFC',
   },
   content: {
     padding: 16,
@@ -32,12 +32,17 @@ const styles = StyleSheet.create({
     flexGrow: 1,
   },
   card: {
-    backgroundColor: '#1E293B',
+    backgroundColor: '#FFFFFF',
     borderRadius: 16,
     padding: 24,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: '#E2E8F0',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
   },
   icon: {
     fontSize: 36,
@@ -46,27 +51,27 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 20,
     fontWeight: '600',
-    color: '#F8FAFC',
+    color: '#0F172A',
     marginBottom: 8,
     textAlign: 'center',
   },
   description: {
     fontSize: 14,
-    color: '#94A3B8',
+    color: '#64748B',
     textAlign: 'center',
     lineHeight: 20,
     marginBottom: 18,
   },
   badge: {
-    backgroundColor: '#0F172A',
-    borderColor: '#38BDF8',
+    backgroundColor: '#EFF6FF',
+    borderColor: '#BFDBFE',
     borderWidth: 1,
     borderRadius: 999,
     paddingVertical: 6,
     paddingHorizontal: 14,
   },
   badgeText: {
-    color: '#38BDF8',
+    color: '#2563EB',
     fontSize: 12,
     fontWeight: '500',
   },

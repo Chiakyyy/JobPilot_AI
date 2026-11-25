@@ -37,8 +37,10 @@ This document provides a technical overview of the architecture, engineering dec
 ### Authentication & Lifecycle Flow
 1. **App Launch & Initialization**:
    - `src/app/_layout.tsx` mounts `AuthProvider` (`src/context/AuthContext.tsx`).
-   - `AuthProvider` invokes `supabase.auth.getSession()` on mount.
-   - The custom `ExpoSecureStoreAdapter` asynchronously reads the persisted session from `expo-secure-store`.
+   - `SplashScreen.preventAutoHideAsync()` prevents the native splash screen from hiding prematurely.
+   - `AuthProvider` invokes `supabase.auth.getSession()` on mount, always resolving `isLoading` to `false` inside a `finally` block.
+   - Once `isLoading` reaches `false`, `src/app/_layout.tsx` explicitly triggers `SplashScreen.hideAsync()`, guaranteeing that the native splash screen never overlays the interactive UI or traps touch events.
+   - The root layout wraps `<Stack />` in a full-screen `flex: 1` container (`#F8FAFC`) ensuring full touch and render area across platforms.
 2. **Hardware-Backed Encryption**:
    - On iOS, tokens reside in Apple Keychain with `kSecAttrAccessibleAfterFirstUnlock`.
    - On Android, tokens are encrypted via Android Keystore backed by hardware security module (HSM) or Trusted Execution Environment (TEE).

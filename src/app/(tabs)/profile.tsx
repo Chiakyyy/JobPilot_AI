@@ -230,7 +230,7 @@ export default function ProfileScreen() {
                 <TextInput
                   style={[styles.input, errors.display_name && styles.inputError]}
                   placeholder="ex. Jean Dupont"
-                  placeholderTextColor="#64748B"
+                  placeholderTextColor="#94A3B8"
                   onBlur={onBlur}
                   onChangeText={onChange}
                   value={value}
@@ -252,7 +252,7 @@ export default function ProfileScreen() {
                 <TextInput
                   style={[styles.input, errors.target_role && styles.inputError]}
                   placeholder="ex. Développeur React Native Senior"
-                  placeholderTextColor="#64748B"
+                  placeholderTextColor="#94A3B8"
                   onBlur={onBlur}
                   onChangeText={onChange}
                   value={value}
@@ -274,7 +274,7 @@ export default function ProfileScreen() {
                 <TextInput
                   style={[styles.input, errors.location && styles.inputError]}
                   placeholder="ex. Paris, France (Télétravail accepté)"
-                  placeholderTextColor="#64748B"
+                  placeholderTextColor="#94A3B8"
                   onBlur={onBlur}
                   onChangeText={onChange}
                   value={value}
@@ -296,7 +296,7 @@ export default function ProfileScreen() {
                 <TextInput
                   style={[styles.input, errors.experience_level && styles.inputError]}
                   placeholder="ex. Débutant, Intermédiaire, Senior, Expert"
-                  placeholderTextColor="#64748B"
+                  placeholderTextColor="#94A3B8"
                   onBlur={onBlur}
                   onChangeText={onChange}
                   value={value}
@@ -318,7 +318,7 @@ export default function ProfileScreen() {
                 <TextInput
                   style={[styles.input, errors.skills && styles.inputError]}
                   placeholder="ex. TypeScript, React Native, Supabase, Node.js"
-                  placeholderTextColor="#64748B"
+                  placeholderTextColor="#94A3B8"
                   onBlur={onBlur}
                   onChangeText={onChange}
                   value={value}
@@ -340,7 +340,7 @@ export default function ProfileScreen() {
                 <TextInput
                   style={[styles.textArea, errors.education_summary && styles.inputError]}
                   placeholder="Diplômes, certifications ou formations suivies..."
-                  placeholderTextColor="#64748B"
+                  placeholderTextColor="#94A3B8"
                   multiline
                   numberOfLines={3}
                   textAlignVertical="top"
@@ -365,7 +365,7 @@ export default function ProfileScreen() {
                 <TextInput
                   style={[styles.textArea, errors.experience_summary && styles.inputError]}
                   placeholder="Résumé de vos postes précédents et réalisations marquantes..."
-                  placeholderTextColor="#64748B"
+                  placeholderTextColor="#94A3B8"
                   multiline
                   numberOfLines={4}
                   textAlignVertical="top"
@@ -417,7 +417,7 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   keyboardView: {
     flex: 1,
-    backgroundColor: '#0B1120',
+    backgroundColor: '#F8FAFC',
   },
   scrollContent: {
     padding: 16,
@@ -428,22 +428,22 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
-    backgroundColor: '#0B1120',
+    backgroundColor: '#F8FAFC',
   },
   loadingText: {
     marginTop: 12,
     fontSize: 14,
-    color: '#94A3B8',
+    color: '#64748B',
   },
   errorTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#F87171',
+    color: '#DC2626',
     marginBottom: 8,
   },
   errorDescription: {
     fontSize: 14,
-    color: '#94A3B8',
+    color: '#64748B',
     textAlign: 'center',
     marginBottom: 16,
   },
@@ -459,62 +459,67 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   warningBanner: {
-    backgroundColor: '#78350F',
-    borderColor: '#D97706',
+    backgroundColor: '#FFFBEB',
+    borderColor: '#F59E0B',
     borderWidth: 1,
     borderRadius: 12,
     padding: 14,
     marginBottom: 16,
   },
   warningTitle: {
-    color: '#FDE68A',
+    color: '#92400E',
     fontWeight: '600',
     fontSize: 14,
     marginBottom: 4,
   },
   warningText: {
-    color: '#FEF3C7',
+    color: '#B45309',
     fontSize: 13,
     lineHeight: 18,
   },
   successBanner: {
-    backgroundColor: '#064E3B',
-    borderColor: '#059669',
+    backgroundColor: '#ECFDF5',
+    borderColor: '#34D399',
     borderWidth: 1,
     borderRadius: 12,
     padding: 14,
     marginBottom: 16,
   },
   successBannerText: {
-    color: '#D1FAE5',
+    color: '#065F46',
     fontSize: 14,
     textAlign: 'center',
   },
   errorBanner: {
-    backgroundColor: '#7F1D1D',
-    borderColor: '#DC2626',
+    backgroundColor: '#FEF2F2',
+    borderColor: '#F87171',
     borderWidth: 1,
     borderRadius: 12,
     padding: 14,
     marginBottom: 16,
   },
   errorBannerText: {
-    color: '#FEE2E2',
+    color: '#B91C1C',
     fontSize: 14,
     lineHeight: 20,
   },
   formCard: {
-    backgroundColor: '#1E293B',
+    backgroundColor: '#FFFFFF',
     borderRadius: 16,
     padding: 20,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: '#E2E8F0',
     marginBottom: 20,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
   },
   sectionTitle: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#38BDF8',
+    color: '#2563EB',
     marginBottom: 16,
     marginTop: 8,
   },
@@ -524,35 +529,36 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 13,
     fontWeight: '500',
-    color: '#E2E8F0',
+    color: '#0F172A',
     marginBottom: 6,
   },
   input: {
-    backgroundColor: '#0F172A',
-    borderColor: '#334155',
+    backgroundColor: '#FFFFFF',
+    borderColor: '#CBD5E1',
     borderWidth: 1,
     borderRadius: 10,
     paddingHorizontal: 14,
-    paddingVertical: 11,
+    paddingVertical: 12,
+    minHeight: 48,
     fontSize: 14,
-    color: '#F8FAFC',
+    color: '#0F172A',
   },
   textArea: {
-    backgroundColor: '#0F172A',
-    borderColor: '#334155',
+    backgroundColor: '#FFFFFF',
+    borderColor: '#CBD5E1',
     borderWidth: 1,
     borderRadius: 10,
     paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingVertical: 12,
     fontSize: 14,
-    color: '#F8FAFC',
+    color: '#0F172A',
     minHeight: 80,
   },
   inputError: {
     borderColor: '#EF4444',
   },
   fieldError: {
-    color: '#F87171',
+    color: '#DC2626',
     fontSize: 12,
     marginTop: 4,
   },
@@ -572,22 +578,27 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   accountCard: {
-    backgroundColor: '#1E293B',
+    backgroundColor: '#FFFFFF',
     borderRadius: 16,
     padding: 20,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: '#E2E8F0',
     alignItems: 'center',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
   },
   accountTitle: {
     fontSize: 14,
-    color: '#94A3B8',
+    color: '#64748B',
     marginBottom: 4,
   },
   accountEmail: {
     fontSize: 15,
     fontWeight: '600',
-    color: '#F8FAFC',
+    color: '#0F172A',
     marginBottom: 16,
   },
   logoutButton: {
@@ -600,7 +611,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   logoutButtonText: {
-    color: '#EF4444',
+    color: '#DC2626',
     fontSize: 15,
     fontWeight: '600',
   },
