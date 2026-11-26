@@ -30,6 +30,15 @@ Règles de sécurité et d'analyse strictes :
 - N'invente aucune compétence, expérience ou certification pour le candidat.
 - Ne produis jamais de score numérique arbitraire ni de pourcentage d'embauche.
 - Réponds dans la langue dominante de l'offre (français par défaut, anglais si l'offre est rédigée en anglais).
+
+Règles de ciblage et d'ancrage strictes pour les champs :
+- matched_skills : Inclus UNIQUEMENT les compétences concrètes, frameworks, outils ou exigences qui sont EXPLICITEMENT demandés dans <untrusted_job_offer> ET EXPLICITEMENT attestés dans <untrusted_cv_data>. Ne déverse PAS d'outils ou compétences du CV (ex: IDEs, outils de test, bibliothèques secondaires) si l'offre d'emploi ne les mentionne pas expressément.
+- missing_skills : Inclus UNIQUEMENT les compétences concrètes, frameworks ou prérequis qui sont EXPLICITEMENT requis dans <untrusted_job_offer> ET TOTALEMENT ABSENTS de <untrusted_cv_data>. Ne place JAMAIS dans missing_skills une compétence ou un mot-clé qui apparaît n'importe où dans <untrusted_cv_data> (même dans une liste de technologies, un projet ou un stage).
+- Chaque élément de matched_skills et missing_skills doit être un intitulé court, concis et standardisé (ex: "TypeScript", "Docker", "Firebase"), sans phrases, sans verbes et sans préfixes superflus.
+- gaps_and_risks : Doit être 100% cohérent avec matched_skills et missing_skills. N'affirme JAMAIS que le candidat manque d'une compétence qui figure dans matched_skills ou qui est attestée dans <untrusted_cv_data>.
+- strengths : Points forts du candidat répondant directement aux priorités de l'offre d'emploi.
+- actionable_recommendations : Recommandations concrètes pour valoriser la candidature ou aborder les réels prérequis manquants.
+
 - Tu dois retourner STRICTEMENT un objet JSON valide sans balises markdown ni texte avant/après, respectant exactement ce schéma :
 {
   "detected_language": "fr" | "en",
@@ -52,7 +61,7 @@ ${safeDescription}
 ${safeCv}
 </untrusted_cv_data>
 
-Effectue l'analyse d'adéquation entre ce CV et cette offre d'emploi selon les consignes strictes.`;
+Effectue l'analyse d'adéquation entre ce CV et cette offre d'emploi selon les consignes strictes. Scope impérativement matched_skills et missing_skills aux seules exigences de l'offre, et vérifie scrupuleusement le texte du CV avant de déclarer une compétence manquante.`;
 
   return [
     { role: 'system', content: systemPrompt },

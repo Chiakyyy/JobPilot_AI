@@ -124,7 +124,7 @@ export class CloudflareWorkersAIProvider implements AIProvider {
         body: JSON.stringify({
           messages,
           max_tokens: 2048,
-          temperature: 0.2,
+          temperature: 0.1,
         }),
         signal: controller.signal,
       });

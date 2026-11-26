@@ -289,6 +289,14 @@ Authorized by ownership                   Authorized via EXISTS (applications + 
   - Cloudflare Workers AI gateways and client SDKs like `@supabase/supabase-js` frequently parse `application/json` responses automatically before returning them to application code.
   - When a pre-parsed JavaScript object is passed to routines expecting raw string text, executing `String(rawOutput)` converts the object into the string literal `"[object Object]"`. Calling `JSON.parse("[object Object]")` then crashes with `SyntaxError: "[object Object]" is not valid JSON`.
   - To prevent this failure mode, both `aiProvider.ts` (`parseAiJsonPayload`) and `useAiAssistant.ts` type-guard payloads before parsing: if `typeof x === 'object' && x !== null`, the object is forwarded directly to Zod validation without stringification; only primitive string payloads undergo markdown code block stripping and `JSON.parse()`.
+- **Preventing LLM Grounding Hallucinations with Deterministic Post-Processing**:
+  - Compact instruction-tuned models (e.g. 8B parameters like Llama 3.1 8B Instruct) can struggle with precise set algebra: they may inadvertently confuse set intersection ($\text{Offer} \cap \text{CV}$, skills matched) with set difference ($\text{Offer} \setminus \text{CV}$, skills missing).
+  - Even with strict prompt engineering and few-shot guidance, stochastic token generation can lead to false-positive missing skills (flagging skills that actually exist in the candidate's resume) or dumping secondary tools from the CV into matched skills even if the job never requested them.
+  - To eliminate hallucinations and contradictory UI states deterministically:
+    1. **Low-Temperature Constrained Inference**: In `aiProvider.ts`, inference requests specify `temperature: 0.1` and scoped system instructions requiring matched and missing skills to be strictly anchored to the offer's explicit requirements.
+    2. **Verbatim Token Boundary Verification**: In `analyze-cv-offer/index.ts`, `applyGroundingFilter` inspects every item proposed in `missing_skills`. Using regex word-boundary and technical symbol matching (`(^|[^a-z0-9])${token}($|[^a-z0-9+#])`), it tests candidate tokens (and cleaned variants without parenthetical qualifiers or common verbs) against the lowercase CV text. If a skill keyword (e.g. `firebase`, `.net maui`, `figma`, `rest api`) is present verbatim in the CV, it is immediately pruned from `missing_skills`.
+    3. **Mutual Exclusivity & Deduplication**: Any skill already present in `matched_skills` is stripped from `missing_skills` case-insensitively, and both arrays are deduplicated.
+    4. This hybrid architecture (LLM for semantic reasoning + deterministic code for grounding enforcement) guarantees zero contradictory UI states and zero false-positive skill gaps.
 - **Hybrid TypeScript Compiler Isolation (Node/Metro vs Deno Edge Functions)**:
   - Hybrid codebases combining React Native (Node runtime, Metro bundler, Expo TypeScript base) and serverless Edge Functions (Deno runtime, URL/npm specifiers) encounter false diagnostics if analyzed under a single TypeScript configuration.
   - The root `tsconfig.json` adds `"supabase"` and `"supabase/**/*"` to its `"exclude"` array, instructing the React Native TypeScript compiler to ignore Deno files and preventing false `ts(2307)` and `ts(2304)` error flags.
@@ -445,6 +453,21 @@ Authorized by ownership                   Authorized via EXISTS (applications + 
 >    - Before calling the AI provider, the Edge Function checks the completed count for `usage_date = CURRENT_DATE` (max 3 analyses, max 5 preps).
 >    - It inserts a row with `status = 'pending'`. If a duplicate request arrives concurrently with the same idempotency key, the database rejects it immediately with a unique constraint violation (HTTP 409).
 > 4. **Finalization & Failure Recovery**: Once the AI inference completes, the row is updated to `status = 'completed'` with `duration_ms`. If the AI call fails or times out (25s AbortController), the row is updated to `status = 'failed'`, ensuring the user's remaining quota is not deducted.
+
+### Q21: How do you eliminate false-positive missing skills and grounding hallucinations in LLM CV-matching pipelines?
+> **Answer:**
+> Production LLM pipelines processing resumes and job descriptions face two common grounding failures:
+> 1. **Set Confusion**: Models (especially lightweight ~8B parameter models) frequently confuse set intersection ($\text{Offer} \cap \text{CV}$) with set difference ($\text{Offer} \setminus \text{CV}$), flagging skills as "missing" even when prominently listed on the candidate's CV.
+> 2. **Irrelevant Tool Dumping**: Models often dump every technology mentioned on a resume into `matched_skills`, even if the job offer never asked for them.
+> 
+> Relying solely on prompt engineering is fundamentally non-deterministic. To guarantee 100% reliable grounding:
+> - **Strict Prompt Scoping**: We bound the system prompt so `matched_skills` only contains skills explicitly requested in the offer and evidenced in the CV, while `missing_skills` is strictly restricted to requirements absent from the CV. We set `temperature: 0.1` to reduce creative variance.
+> - **Deterministic TypeScript Post-Processing Guardrail**: In `supabase/functions/analyze-cv-offer/index.ts`, before returning data to the mobile client, we run `applyGroundingFilter`:
+>   - **Verbatim Token Boundary Check**: It normalizes candidate missing skill keywords (stripping parenthetical details and action prefixes) and verifies them against the raw extracted CV text using word-boundary regexes that respect programming language symbols (e.g. `C#`, `C++`, `.NET MAUI`, `REST API`, `Go`). If a skill exists anywhere in the candidate's CV text, it is deterministically pruned from `missing_skills`.
+>   - **Mutual Exclusivity Enforcement**: Any skill appearing in `matched_skills` is stripped from `missing_skills` case-insensitively to prevent contradictory UI states.
+>   - **Deduplication**: Case-insensitive deduplication preserves clean, non-redundant pill lists in the UI.
+> 
+> This multi-layered approach combines the semantic extraction power of LLMs with the absolute mathematical certainty of deterministic code.
 
 ---
 

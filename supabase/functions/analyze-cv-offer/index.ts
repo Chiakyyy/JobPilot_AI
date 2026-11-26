@@ -1,5 +1,5 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
-import { defaultAiProvider } from '../_shared/aiProvider.ts';
+import { defaultAiProvider, CvAnalysisOutput } from '../_shared/aiProvider.ts';
 import { corsHeaders, jsonResponse } from '../_shared/cors.ts';
 import { extractCvText, ScannedPdfError } from '../_shared/pdfExtractor.ts';
 
@@ -9,6 +9,131 @@ const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '
 
 // This regular expression validates standard uuid strings.
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// This helper escapes special regular expression characters in candidate skill strings.
+function escapeRegex(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// This helper verifies whether a skill token exists verbatim in extracted cv text using boundary matching.
+function isSkillPresentInCv(skill: string, normalizedCv: string): boolean {
+  const trimmed = skill.trim().toLowerCase();
+  if (!trimmed) {
+    return false;
+  }
+
+  // Clean conversational prefixes and trailing parenthetical details.
+  const cleaned = trimmed
+    .replace(/^(maîtrise de |connaissance de |notions de |expérience en |pratique de |mastery of |knowledge of |experience with )/i, '')
+    .replace(/\(.*?\)/g, '')
+    .trim();
+
+  const candidates = [trimmed, cleaned].filter((c) => c.length > 0);
+
+  for (const candidate of candidates) {
+    // Avoid matching single letter tokens that are not recognized programming languages like c or r.
+    if (candidate.length === 1 && !['c', 'r'].includes(candidate)) {
+      continue;
+    }
+
+    const escaped = escapeRegex(candidate);
+
+    // Boundary check using non alphanumeric markers while preserving tech characters.
+    const pattern = new RegExp(`(^|[^a-z0-9])${escaped}($|[^a-z0-9+#])`, 'i');
+    if (pattern.test(normalizedCv)) {
+      return true;
+    }
+
+    // Also check plural variant when candidate length is at least three and does not end with s.
+    if (candidate.length >= 3 && !candidate.endsWith('s')) {
+      const pluralEscaped = escapeRegex(`${candidate}s`);
+      const pluralPattern = new RegExp(`(^|[^a-z0-9])${pluralEscaped}($|[^a-z0-9+#])`, 'i');
+      if (pluralPattern.test(normalizedCv)) {
+        return true;
+      }
+    }
+
+    // Check composite slash tokens individually.
+    if (candidate.includes('/')) {
+      const subTokens = candidate.split('/').map((s) => s.trim()).filter((s) => s.length > 0);
+      for (const sub of subTokens) {
+        if (isSkillPresentInCv(sub, normalizedCv)) {
+          return true;
+        }
+      }
+    }
+  }
+
+  return false;
+}
+
+// This helper deduplicates string arrays case insensitively while preserving original casing.
+function deduplicateCaseInsensitive(items: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const item of items) {
+    const trimmed = item.trim();
+    if (!trimmed) {
+      continue;
+    }
+    const lower = trimmed.toLowerCase();
+    if (!seen.has(lower)) {
+      seen.add(lower);
+      result.push(trimmed);
+    }
+  }
+
+  return result;
+}
+
+// This helper applies deterministic grounding filters to eliminate false positive missing skills and ui contradictions.
+function applyGroundingFilter(
+  result: CvAnalysisOutput,
+  cvText: string
+): CvAnalysisOutput {
+  const normalizedCv = cvText.toLowerCase();
+
+  // Deduplicate matched skills case insensitively.
+  const dedupedMatched = deduplicateCaseInsensitive(result.matched_skills ?? []);
+
+  // Build a lookup set of normalized matched skills for mutual exclusivity check.
+  const matchedSet = new Set(
+    dedupedMatched.map((s) => s.trim().toLowerCase().replace(/\(.*?\)/g, '').trim())
+  );
+
+  // Filter missing skills against cv text presence and matched skills mutual exclusivity.
+  const filteredMissing: string[] = [];
+  for (const skill of result.missing_skills ?? []) {
+    const trimmed = skill.trim();
+    if (!trimmed) {
+      continue;
+    }
+
+    const lower = trimmed.toLowerCase();
+    const cleanLower = lower.replace(/\(.*?\)/g, '').trim();
+
+    // Enforce mutual exclusivity with matched skills.
+    if (matchedSet.has(lower) || matchedSet.has(cleanLower)) {
+      continue;
+    }
+
+    // Filter out false positive missing skills that are already present in the cv text.
+    if (isSkillPresentInCv(trimmed, normalizedCv)) {
+      continue;
+    }
+
+    filteredMissing.push(trimmed);
+  }
+
+  const dedupedMissing = deduplicateCaseInsensitive(filteredMissing);
+
+  return {
+    ...result,
+    matched_skills: dedupedMatched,
+    missing_skills: dedupedMissing,
+  };
+}
 
 // This edge function handles cv to offer matching analysis with quota checks and prompt guards.
 Deno.serve(async (req: Request) => {
@@ -166,6 +291,9 @@ Deno.serve(async (req: Request) => {
       offerDescription,
     });
 
+    // Apply deterministic grounding post processing to guarantee factual skill extraction.
+    const groundedResult = applyGroundingFilter(analysisResult, cvText);
+
     const durationMs = Date.now() - startTime;
     await adminClient
       .from('ai_usage_logs')
@@ -181,7 +309,7 @@ Deno.serve(async (req: Request) => {
       status: 'completed',
     }));
 
-    return jsonResponse(analysisResult, 200);
+    return jsonResponse(groundedResult, 200);
   } catch (err: unknown) {
     await adminClient.from('ai_usage_logs').update({ status: 'failed' }).eq('id', logId);
 
