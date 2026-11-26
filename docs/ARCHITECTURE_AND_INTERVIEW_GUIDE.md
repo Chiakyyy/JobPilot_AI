@@ -285,6 +285,10 @@ Authorized by ownership                   Authorized via EXISTS (applications + 
   - When importing third-party npm packages via `npm:` specifiers in Deno serverless runtimes (such as `npm:unpdf`), runtime return structures may deviate from ambient TypeScript definitions (`noImplicitAny` or loose module types can conceal shape variations at compile time).
   - For example, `extractText(pdf, { mergePages: true })` resolves to an object shaped as `{ totalPages: number, text: string | string[] }` or returns an array of strings depending on runtime options and document page hierarchies. Calling `.trim()` directly on an array triggers a runtime `TypeError: rawText.trim is not a function`.
   - In `supabase/functions/_shared/pdfExtractor.ts`, return values are normalized defensively (`typeof result === 'string' ? result : result?.text`, followed by `Array.isArray(extracted) ? extracted.join('\n') : ...`), guaranteeing a valid string instance before invoking text operations (`.replace()`, `.trim()`, regex matching).
+- **Hybrid TypeScript Compiler Isolation (Node/Metro vs Deno Edge Functions)**:
+  - Hybrid codebases combining React Native (Node runtime, Metro bundler, Expo TypeScript base) and serverless Edge Functions (Deno runtime, URL/npm specifiers) encounter false diagnostics if analyzed under a single TypeScript configuration.
+  - The root `tsconfig.json` adds `"supabase"` and `"supabase/**/*"` to its `"exclude"` array, instructing the React Native TypeScript compiler to ignore Deno files and preventing false `ts(2307)` and `ts(2304)` error flags.
+  - Concurrently, `.vscode/settings.json` activates the Deno language server specifically for Edge Functions via `"deno.enablePaths": ["./supabase/functions"]`, providing dedicated Deno IntelliSense and type checking inside Edge Functions without interfering with the mobile application.
 
 ---
 

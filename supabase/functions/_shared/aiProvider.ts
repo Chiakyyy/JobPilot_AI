@@ -59,7 +59,7 @@ export interface AIProvider {
 
 // This helper strips markdown code blocks and whitespace from raw model text outputs.
 function extractJsonString(rawText: string): string {
-  let cleaned = rawText.trim();
+  let cleaned = String(rawText ?? '').trim();
   if (cleaned.startsWith('```json')) {
     cleaned = cleaned.replace(/^```json\s*/i, '');
   } else if (cleaned.startsWith('```')) {
