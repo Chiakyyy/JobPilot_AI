@@ -57,18 +57,39 @@ export interface AIProvider {
   generateInterviewPrep(params: GenerateInterviewPrepParams): Promise<InterviewPrepOutput>;
 }
 
-// This helper strips markdown code blocks and whitespace from raw model text outputs.
-function extractJsonString(rawText: string): string {
-  let cleaned = String(rawText ?? '').trim();
-  if (cleaned.startsWith('```json')) {
-    cleaned = cleaned.replace(/^```json\s*/i, '');
-  } else if (cleaned.startsWith('```')) {
-    cleaned = cleaned.replace(/^```\s*/, '');
+// This helper extracts and parses json payload from raw response strings or pre parsed objects.
+function parseAiJsonPayload(rawResponse: unknown): unknown {
+  if (rawResponse !== null && typeof rawResponse === 'object') {
+    return rawResponse;
   }
-  if (cleaned.endsWith('```')) {
-    cleaned = cleaned.replace(/\s*```$/, '');
+
+  if (typeof rawResponse === 'string') {
+    let cleaned = rawResponse.trim();
+    if (cleaned.startsWith('```json')) {
+      cleaned = cleaned.replace(/^```json\s*/i, '');
+    } else if (cleaned.startsWith('```')) {
+      cleaned = cleaned.replace(/^```\s*/, '');
+    }
+    if (cleaned.endsWith('```')) {
+      cleaned = cleaned.replace(/\s*```$/, '');
+    }
+    cleaned = cleaned.trim();
+
+    // If extra conversational text wraps the json object, extract the outermost curly braces.
+    const firstBrace = cleaned.indexOf('{');
+    const lastBrace = cleaned.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+      cleaned = cleaned.substring(firstBrace, lastBrace + 1);
+    }
+
+    try {
+      return JSON.parse(cleaned);
+    } catch {
+      throw new Error('Impossible de parser la réponse JSON fournie par le modèle IA.');
+    }
   }
-  return cleaned.trim();
+
+  throw new Error('Réponse vide ou invalide du modèle IA.');
 }
 
 // This class implements the ai provider using cloudflare workers ai with timeout and schema validation.
@@ -84,7 +105,7 @@ export class CloudflareWorkersAIProvider implements AIProvider {
   }
 
   // This private helper executes an http call to cloudflare with an abort controller timeout.
-  private async runModel(messages: PromptMessage[]): Promise<string> {
+  private async runModel(messages: PromptMessage[]): Promise<unknown> {
     if (!this.accountId || !this.apiToken) {
       throw new Error('Identifiants Cloudflare manquants (CLOUDFLARE_ACCOUNT_ID ou CLOUDFLARE_API_TOKEN non configurés).');
     }
@@ -114,7 +135,7 @@ export class CloudflareWorkersAIProvider implements AIProvider {
       }
 
       const data = await response.json();
-      const rawOutput = data.result?.response ?? (typeof data.result === 'string' ? data.result : '');
+      const rawOutput = data.result?.response ?? data.result;
 
       if (!rawOutput) {
         throw new Error('Réponse vide reçue de Cloudflare Workers AI.');
@@ -158,9 +179,12 @@ export class CloudflareWorkersAIProvider implements AIProvider {
     }
 
     const rawOutput = await this.runModel(messages);
-    const jsonStr = extractJsonString(rawOutput);
-    const parsed = JSON.parse(jsonStr);
-    return cvAnalysisSchema.parse(parsed);
+    const parsed = parseAiJsonPayload(rawOutput);
+    const validated = cvAnalysisSchema.safeParse(parsed);
+    if (!validated.success) {
+      throw new Error(`Structure de réponse IA invalide : ${validated.error.message}`);
+    }
+    return validated.data;
   }
 
   // This method generates targeted interview preparation questions with fallback support for unconfigured environments.
@@ -233,9 +257,12 @@ export class CloudflareWorkersAIProvider implements AIProvider {
     }
 
     const rawOutput = await this.runModel(messages);
-    const jsonStr = extractJsonString(rawOutput);
-    const parsed = JSON.parse(jsonStr);
-    return interviewPrepSchema.parse(parsed);
+    const parsed = parseAiJsonPayload(rawOutput);
+    const validated = interviewPrepSchema.safeParse(parsed);
+    if (!validated.success) {
+      throw new Error(`Structure de réponse IA invalide : ${validated.error.message}`);
+    }
+    return validated.data;
   }
 }
 

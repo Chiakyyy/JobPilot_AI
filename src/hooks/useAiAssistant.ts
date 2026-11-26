@@ -166,7 +166,18 @@ export function useAnalyzeCvOffer() {
         throw new Error(message);
       }
 
-      return data as CvAnalysisResult;
+      const parsedData =
+        typeof data === 'string'
+          ? JSON.parse(data)
+          : typeof data === 'object' && data !== null
+          ? data
+          : null;
+
+      if (!parsedData) {
+        throw new Error('Données d’analyse non reçues ou corrompues.');
+      }
+
+      return parsedData as CvAnalysisResult;
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['ai-quota'] });
@@ -207,7 +218,18 @@ export function useGenerateInterviewPrep() {
         throw new Error(message);
       }
 
-      return data as InterviewPrepResult;
+      const parsedData =
+        typeof data === 'string'
+          ? JSON.parse(data)
+          : typeof data === 'object' && data !== null
+          ? data
+          : null;
+
+      if (!parsedData) {
+        throw new Error('Données de préparation non reçues ou corrompues.');
+      }
+
+      return parsedData as InterviewPrepResult;
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['ai-quota'] });
