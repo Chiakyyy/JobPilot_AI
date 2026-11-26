@@ -21,12 +21,12 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ error: 'En-tête d’autorisation manquant.' }, 401);
   }
 
-  // This client forwards the incoming authorization header to propagate the caller identity.
-  const supabaseUser = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  // This user client forwards the incoming authorization header to read rls protected data.
+  const userClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     global: { headers: { Authorization: authHeader } },
   });
 
-  const { data: { user }, error: authError } = await supabaseUser.auth.getUser();
+  const { data: { user }, error: authError } = await userClient.auth.getUser();
 
   if (authError || !user) {
     return jsonResponse({ error: 'Session non authentifiée ou expirée.' }, 401);
@@ -58,15 +58,24 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ error: 'Le consentement utilisateur est obligatoire pour générer ces questions.' }, 400);
   }
 
-  const supabaseAdmin = createClient(
-    SUPABASE_URL,
-    SUPABASE_SERVICE_ROLE_KEY || SUPABASE_ANON_KEY,
-    { global: { headers: { Authorization: authHeader } } }
-  );
+  // This administrative client uses the service role key to manage telemetry and quotas.
+  const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+
   const today = new Date().toISOString().split('T')[0];
+  const sixtySecondsAgo = new Date(Date.now() - 60000).toISOString();
+
+  // Remove orphaned pending rows older than one minute to avoid blocking valid runs.
+  await adminClient
+    .from('ai_usage_logs')
+    .delete()
+    .eq('user_id', user.id)
+    .eq('status', 'pending')
+    .lt('created_at', sixtySecondsAgo);
 
   // Check if an identical request was already completed to prevent duplicate charging.
-  const { data: existingCompleted } = await supabaseAdmin
+  const { data: existingCompleted } = await adminClient
     .from('ai_usage_logs')
     .select('id')
     .eq('user_id', user.id)
@@ -80,7 +89,7 @@ Deno.serve(async (req: Request) => {
   }
 
   // Enforce daily quota of 5 interview preparation runs per user per day.
-  const { count: dailyCount, error: countError } = await supabaseAdmin
+  const { count: dailyCount, error: countError } = await adminClient
     .from('ai_usage_logs')
     .select('id', { count: 'exact', head: true })
     .eq('user_id', user.id)
@@ -102,7 +111,7 @@ Deno.serve(async (req: Request) => {
   const requestId = crypto.randomUUID();
   const startTime = Date.now();
 
-  const { data: pendingLog, error: insertError } = await supabaseAdmin
+  const { data: pendingLog, error: insertError } = await adminClient
     .from('ai_usage_logs')
     .insert({
       user_id: user.id,
@@ -117,33 +126,37 @@ Deno.serve(async (req: Request) => {
     .single();
 
   if (insertError || !pendingLog) {
-    return jsonResponse({ error: 'Une génération est déjà en cours ou la réservation du quota a échoué.' }, 409);
+    if (insertError?.code === '23505') {
+      return jsonResponse({ error: 'Une préparation est déjà en cours pour cette requête.' }, 409);
+    }
+    console.error('ai_usage_logs insert error', insertError?.code, insertError?.message);
+    return jsonResponse({ error: 'Erreur serveur lors de l’initialisation de la préparation.' }, 500);
   }
 
   const logId = pendingLog.id;
 
   try {
-    const { data: offer, error: offerError } = await supabaseUser
+    const { data: offer, error: offerError } = await userClient
       .from('job_offers')
       .select('id, title, company, description')
       .eq('id', offer_id)
       .maybeSingle();
 
     if (offerError || !offer) {
-      await supabaseAdmin.from('ai_usage_logs').update({ status: 'failed' }).eq('id', logId);
+      await adminClient.from('ai_usage_logs').update({ status: 'failed' }).eq('id', logId);
       return jsonResponse({ error: 'Offre d\'emploi introuvable en base de données.' }, 404);
     }
 
     let cvText: string | null = null;
     if (include_cv === true) {
-      const { data: userCv, error: cvError } = await supabaseUser
+      const { data: userCv, error: cvError } = await userClient
         .from('user_cvs')
         .select('file_path')
         .eq('user_id', user.id)
         .maybeSingle();
 
       if (cvError || !userCv?.file_path) {
-        await supabaseAdmin.from('ai_usage_logs').update({ status: 'failed' }).eq('id', logId);
+        await adminClient.from('ai_usage_logs').update({ status: 'failed' }).eq('id', logId);
         return jsonResponse(
           { error: 'Aucun CV trouvé. Veuillez d\'abord importer votre CV PDF dans votre profil.' },
           404
@@ -151,10 +164,10 @@ Deno.serve(async (req: Request) => {
       }
 
       try {
-        cvText = await extractCvText(supabaseUser, userCv.file_path);
+        cvText = await extractCvText(adminClient, userCv.file_path);
       } catch (cvErr) {
         if (cvErr instanceof ScannedPdfError) {
-          await supabaseAdmin.from('ai_usage_logs').update({ status: 'failed' }).eq('id', logId);
+          await adminClient.from('ai_usage_logs').update({ status: 'failed' }).eq('id', logId);
           return jsonResponse({ error: cvErr.message }, 422);
         }
         // Proceed with offer description alone if non-fatal extraction failure occurred.
@@ -171,7 +184,7 @@ Deno.serve(async (req: Request) => {
     });
 
     const durationMs = Date.now() - startTime;
-    await supabaseAdmin
+    await adminClient
       .from('ai_usage_logs')
       .update({ status: 'completed', duration_ms: durationMs })
       .eq('id', logId);
@@ -187,7 +200,7 @@ Deno.serve(async (req: Request) => {
 
     return jsonResponse(prepResult, 200);
   } catch (err: unknown) {
-    await supabaseAdmin.from('ai_usage_logs').update({ status: 'failed' }).eq('id', logId);
+    await adminClient.from('ai_usage_logs').update({ status: 'failed' }).eq('id', logId);
 
     if (err instanceof ScannedPdfError) {
       return jsonResponse({ error: err.message }, 422);
