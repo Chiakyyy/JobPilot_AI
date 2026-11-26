@@ -281,6 +281,10 @@ Authorized by ownership                   Authorized via EXISTS (applications + 
   - When `supabase.functions.invoke(...)` receives an HTTP non-2xx status code from an Edge Function, `@supabase/supabase-js` throws a `FunctionsHttpError` whose `.message` property is merely `"Edge Function returned a non-2xx status code"`.
   - The actual server JSON payload (containing `{ error: "..." }`) is stored inside `error.context`, which wraps the raw Fetch `Response` object.
   - In `src/hooks/useAiAssistant.ts`, `extractFunctionErrorMessage` clones and inspects `await error.context.json()` (with a `.text()` fallback). This ensures precise, actionable error messages from the backend (`"Offre d'emploi introuvable en base de données"`, `"Aucun CV trouvé. Veuillez d'abord importer votre CV PDF dans votre profil."`, `"Ce document ne peut pas être analysé dans cette version"`, or gateway 404s when undeployed) are surfaced to the user instead of misleading generic errors.
+- **Defensive Return Shape Normalization for `npm:` Packages in Deno**:
+  - When importing third-party npm packages via `npm:` specifiers in Deno serverless runtimes (such as `npm:unpdf`), runtime return structures may deviate from ambient TypeScript definitions (`noImplicitAny` or loose module types can conceal shape variations at compile time).
+  - For example, `extractText(pdf, { mergePages: true })` resolves to an object shaped as `{ totalPages: number, text: string | string[] }` or returns an array of strings depending on runtime options and document page hierarchies. Calling `.trim()` directly on an array triggers a runtime `TypeError: rawText.trim is not a function`.
+  - In `supabase/functions/_shared/pdfExtractor.ts`, return values are normalized defensively (`typeof result === 'string' ? result : result?.text`, followed by `Array.isArray(extracted) ? extracted.join('\n') : ...`), guaranteeing a valid string instance before invoking text operations (`.replace()`, `.trim()`, regex matching).
 
 ---
 

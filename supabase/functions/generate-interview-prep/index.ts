@@ -166,12 +166,12 @@ Deno.serve(async (req: Request) => {
       try {
         cvText = await extractCvText(adminClient, userCv.file_path);
       } catch (cvErr) {
+        await adminClient.from('ai_usage_logs').update({ status: 'failed' }).eq('id', logId);
         if (cvErr instanceof ScannedPdfError) {
-          await adminClient.from('ai_usage_logs').update({ status: 'failed' }).eq('id', logId);
           return jsonResponse({ error: cvErr.message }, 422);
         }
-        // Proceed with offer description alone if non-fatal extraction failure occurred.
-        console.warn('Optional cv text extraction failed, continuing with offer details only.');
+        const message = cvErr instanceof Error ? cvErr.message : 'Erreur lors de l’extraction du CV.';
+        return jsonResponse({ error: message }, 500);
       }
     }
 

@@ -21,14 +21,21 @@ export async function extractCvText(
 
   const arrayBuffer = await data.arrayBuffer();
   const pdf = await getDocumentProxy(new Uint8Array(arrayBuffer));
-  const { text } = await extractText(pdf, { mergePages: true });
+  const result = await extractText(pdf, { mergePages: true });
 
-  const meaningfulChars = (text || '').match(/[a-zA-Z0-9\u00C0-\u017F]/g) || [];
+  const extracted = typeof result === 'string' ? result : (result as { text?: unknown })?.text;
+  const rawText = Array.isArray(extracted)
+    ? extracted.join('\n')
+    : typeof extracted === 'string'
+    ? extracted
+    : '';
+
+  const meaningfulChars = rawText.match(/[a-zA-Z0-9\u00C0-\u017F]/g) || [];
   if (meaningfulChars.length < 60) {
     throw new ScannedPdfError();
   }
 
-  const normalized = text.replace(/\s+/g, ' ').trim();
+  const normalized = rawText.replace(/\s+/g, ' ').trim();
   const maxChars = 7000;
   return normalized.length > maxChars ? normalized.substring(0, maxChars) : normalized;
 }
