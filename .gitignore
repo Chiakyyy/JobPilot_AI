@@ -33,6 +33,7 @@ yarn-error.*
 # Environment variables and secrets
 .env
 .env*.local
+.env.example
 
 # typescript
 *.tsbuildinfo

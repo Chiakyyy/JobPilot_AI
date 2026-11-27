@@ -258,6 +258,21 @@ export default function ProfileScreen() {
               </View>
             </Pressable>
 
+            <Pressable style={styles.settingsCard} onPress={() => router.push('/settings' as never)}>
+              <View style={styles.settingsCardLeft}>
+                <View style={styles.settingsIconBox}>
+                  <Ionicons name="shield-checkmark" size={24} color="#0D9488" />
+                </View>
+                <View style={styles.settingsInfo}>
+                  <Text style={styles.settingsCardTitle}>Paramètres et confidentialité</Text>
+                  <Text style={styles.settingsCardSubtitle}>
+                    Protection des données, gestion du CV et compte
+                  </Text>
+                </View>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
+            </Pressable>
+
             <View style={styles.formCard}>
               <Text style={styles.sectionTitle}>Informations principales</Text>
 
@@ -653,6 +668,51 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.04,
     shadowRadius: 4,
     elevation: 2,
+    marginBottom: 10,
+  },
+  settingsCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 2,
+    marginBottom: 14,
+  },
+  settingsCardLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+    marginRight: 10,
+  },
+  settingsIconBox: {
+    width: 44,
+    height: 44,
+    borderRadius: 10,
+    backgroundColor: '#F0FDFA',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  settingsInfo: {
+    flex: 1,
+  },
+  settingsCardTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  settingsCardSubtitle: {
+    fontSize: 12,
+    color: '#64748B',
+    marginTop: 2,
   },
   cvCardLeft: {
     flexDirection: 'row',

@@ -313,6 +313,25 @@ Authorized by ownership                   Authorized via EXISTS (applications + 
   - The root `tsconfig.json` adds `"supabase"` and `"supabase/**/*"` to its `"exclude"` array, instructing the React Native TypeScript compiler to ignore Deno files and preventing false `ts(2307)` and `ts(2304)` error flags.
   - Concurrently, `.vscode/settings.json` activates the Deno language server specifically for Edge Functions via `"deno.enablePaths": ["./supabase/functions"]`, providing dedicated Deno IntelliSense and type checking inside Edge Functions without interfering with the mobile application.
 
+### Step 6: Right to Erasure, Offline Resilience & Security QA
+
+- **Cascading Account Deletion Architecture (GDPR Compliance)**:
+  - Under GDPR Article 17 ("Right to erasure"), users must be able to delete all their stored personal data permanently.
+  - In Supabase, client-side JWTs (`anon` or `authenticated` role) are deliberately prohibited from calling `auth.admin.deleteUser()`. Deleting an authentication record requires administrative privileges (`service_role`), necessitating a dedicated server-side Edge Function (`supabase/functions/delete-account/index.ts`).
+  - **Storage Cleanup Precedence**: In Supabase Storage, objects stored in `storage.objects` retain ownership references linked to the user's UUID. Attempting to delete `auth.users` while objects remain in the `cvs` bucket can trigger foreign-key constraint violations or leave unreferenced orphaned files. The Edge Function explicitly lists and removes all files inside `cvs/${user.id}/*` via `adminClient.storage.from('cvs').remove(paths)` *before* deleting the auth record.
+  - **PostgreSQL Cascading Deletion**: Once storage objects are deleted, calling `adminClient.auth.admin.deleteUser(user.id)` removes the user from `auth.users`. All linked rows across `public.profiles`, `public.job_offers`, `public.applications`, `public.user_cvs`, and `public.ai_usage_logs` are deleted atomically through PostgreSQL foreign key `ON DELETE CASCADE` constraints.
+  - **Sanitized Telemetry**: The deletion handler outputs only `{ request_id, user_id, status: 'deleted' }` without any user PII.
+- **Offline Resilience (`NetInfo` + TanStack Query `onlineManager`)**:
+  - Mobile devices routinely encounter intermittent network dropouts, tunnel traversal, or flight mode.
+  - In `src/app/_layout.tsx`, `@react-native-community/netinfo` is wired into TanStack Query's global `onlineManager` via `onlineManager.setEventListener`. When connectivity is lost, active query retries pause automatically instead of rapidly exhausting retry limits and failing with network errors. When connection is restored, queries resume automatically.
+  - A persistent, non-intrusive top banner (`Aucune connexion Internet — certaines actions sont indisponibles`) alerts users when `isConnected === false`, while cached dashboard metrics and stored application lists remain fully readable.
+- **Automated Security & Regression Auditing (`qa:audit`)**:
+  - Mobile client bundles must never include administrative credentials (`service_role`, `SUPABASE_SERVICE_ROLE_KEY`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`).
+  - The automated audit script (`scripts/qa-security-audit.mjs`, invoked via `npm run qa:audit`) executes zero-dependency Node assertions:
+    1. **Secret Leak Scanner**: Recursively scans all `.ts`, `.tsx`, `.js`, and `.env` files in `src/` and `.env.example` to ensure zero presence of server secrets.
+    2. **PDF Validation Logic**: Validates `%PDF-` magic-byte acceptance, rejection of non-PDF headers (`PNG`, plain text), and enforcement of the 5 MB upper bound.
+    3. **AI Grounding & Boundary Isolation**: Validates delimiter isolation (`<untrusted_cv_data>`, `<untrusted_job_offer>`), token boundary regex matching (verifying `c` does not match `c#` and `go` does not match `django`), and mutual exclusivity between matched and missing skills.
+
 ---
 
 ## 3. Interview Q&A Bank
@@ -500,6 +519,36 @@ Authorized by ownership                   Authorized via EXISTS (applications + 
 > 1. **Backend Edge Functions**: Check `Deno.env.get('ENABLE_AI_QUOTA') === 'true'`. When disabled, telemetry logging, stale pending reservation cleanup, and idempotency key deduplication remain fully operational, but daily counter checks and HTTP 429 rejections are bypassed.
 > 2. **Frontend React Query Hooks**: `useAiQuota` reads `EXPO_PUBLIC_ENABLE_AI_QUOTA === 'true'` and sets `isUnlimited: true`, displaying **`Mode test illimité`** in the mobile UI and keeping generation buttons enabled.
 > 3. **Instant Toggle in Production**: Transitioning to production requires zero code changes or rebuilds—simply setting `ENABLE_AI_QUOTA=true` in Supabase Secrets immediately turns on strict enforcement.
+
+### Q24: How do you implement the GDPR "Right to be Forgotten" (account deletion) in Supabase and PostgreSQL?
+> **Answer:**
+> Compliance with GDPR Article 17 requires permanent, verifiable erasure of all personal data upon user request:
+> 1. **Client Isolation**: Client apps using `anon` or user JWT tokens cannot delete auth users. We route account deletion through an authenticated server-side Edge Function (`delete-account`).
+> 2. **Caller Authentication**: The function verifies the caller's JWT via `userClient.auth.getUser()`, returning HTTP 401 if invalid.
+> 3. **Distributed Storage Purge**: Storage bucket objects (`cvs/${user.id}/*`) must be removed first using `adminClient.storage.from('cvs').remove(paths)` to prevent orphan files or foreign key blocking.
+> 4. **Cascading Auth Deletion**: Calling `adminClient.auth.admin.deleteUser(user.id)` permanently removes the identity from `auth.users`. Because application tables (`profiles`, `job_offers`, `applications`, `user_cvs`, `ai_usage_logs`) define foreign keys with `ON DELETE CASCADE`, PostgreSQL purges all associated relational records in the same transaction.
+> 5. **Client Cache Invalidation**: Upon receiving HTTP 200, the client invokes `supabase.auth.signOut({ scope: 'local' })`, clears TanStack Query's cache via `queryClient.clear()`, and redirects to `/(auth)/login`.
+
+### Q25: Why must cloud object storage be cleaned up before deleting an auth user in serverless architectures?
+> **Answer:**
+> In distributed architectures combining SQL databases and cloud object storage:
+> - Storage engines (such as AWS S3 or Supabase Storage) and relational databases (PostgreSQL) do not share atomic two-phase commit transactions.
+> - In Supabase, records in `storage.objects` store `owner` UUIDs linked to `auth.users`. If a user is deleted before their storage files are removed, storage records can trigger foreign-key errors or remain stranded as inaccessible orphan blobs costing storage fees.
+> - By purging all bucket files (`cvs/${user.id}/*`) *prior* to invoking `deleteUser`, we guarantee zero orphan storage objects and clean database cascades.
+
+### Q26: How do you design offline-first resilience in React Native with TanStack Query and NetInfo?
+> **Answer:**
+> Mobile applications on unpredictable network connections require proactive connection management:
+> 1. **Connection Listener**: We integrate `@react-native-community/netinfo` with TanStack Query's `onlineManager` via `onlineManager.setEventListener((setOnline) => NetInfo.addEventListener((state) => setOnline(Boolean(state.isConnected))))`.
+> 2. **Automatic Query Pausing**: When offline, TanStack Query halts outgoing fetches and pauses retry loops rather than throwing instant errors, preserving the user's battery and query retry budget.
+> 3. **Seamless Resumption**: When connectivity is regained, queries marked stale re-fetch in the background automatically.
+> 4. **Non-Intrusive UX**: A global banner in `_layout.tsx` alerts the user (`Aucune connexion Internet — certaines actions sont indisponibles`) while cached data remains fully navigable, avoiding jarring full-screen error overlays.
+
+### Q27: How do you prevent server-side API keys and secret leaks from entering mobile client bundles?
+> **Answer:**
+> React Native and Expo applications compile client code into static JavaScript bundles (`index.android.bundle`, `main.jsbundle`) that can be unpacked and analyzed with basic reverse-engineering tools.
+> 1. **Zero Secret Footprint in Client**: We never store `SUPABASE_SERVICE_ROLE_KEY`, `CLOUDFLARE_API_TOKEN`, or backend database credentials in the client repository or `.env` files. Mobile code only accesses `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (anon key), which are safely gated by Row-Level Security.
+> 2. **Automated Static Secret Scanning**: We include an automated pre-build test (`npm run qa:audit`, implemented in `scripts/qa-security-audit.mjs`) using Node's built-in `assert` module. It scans all source files in `src/` and `.env.example` for forbidden strings (`service_role`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`), failing CI/CD builds immediately if any server secret is accidentally committed.
 
 ---
 

@@ -1,12 +1,21 @@
-import { QueryClientProvider } from '@tanstack/react-query';
+import { Ionicons } from '@expo/vector-icons';
+import NetInfo from '@react-native-community/netinfo';
+import { onlineManager, QueryClientProvider } from '@tanstack/react-query';
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import React, { useEffect } from 'react';
-import { ActivityIndicator, BackHandler, StyleSheet, View, useColorScheme } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { ActivityIndicator, BackHandler, StyleSheet, Text, View, useColorScheme } from 'react-native';
 import 'react-native-url-polyfill/auto';
 
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { queryClient } from '@/lib/queryClient';
+
+// This listener binds device network state transitions to tanstack query online manager.
+onlineManager.setEventListener((setOnline) => {
+  return NetInfo.addEventListener((state) => {
+    setOnline(Boolean(state.isConnected));
+  });
+});
 
 // This call prevents the native splash screen from hiding automatically during initialization.
 SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -16,6 +25,17 @@ function RootNavigationLayout() {
   const { session, isLoading } = useAuth();
   const segments = useSegments();
   const router = useRouter();
+  const [isOffline, setIsOffline] = useState<boolean>(false);
+
+  // This effect monitors network connection state to trigger the global offline banner.
+  useEffect(() => {
+    const unsubscribe = NetInfo.addEventListener((state) => {
+      setIsOffline(state.isConnected === false);
+    });
+    return () => {
+      unsubscribe();
+    };
+  }, []);
 
   // This effect hides the native splash screen once authentication initialization is complete.
   useEffect(() => {
@@ -70,6 +90,14 @@ function RootNavigationLayout() {
 
   return (
     <View style={styles.rootContainer}>
+      {isOffline && (
+        <View style={styles.offlineBanner}>
+          <Ionicons name="cloud-offline-outline" size={15} color="#FFFFFF" style={styles.offlineIcon} />
+          <Text style={styles.offlineBannerText}>
+            Aucune connexion Internet — certaines actions sont indisponibles
+          </Text>
+        </View>
+      )}
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
@@ -133,6 +161,16 @@ function RootNavigationLayout() {
             headerTitleStyle: { color: '#0F172A', fontWeight: '600' },
           }}
         />
+        <Stack.Screen
+          name="settings"
+          options={{
+            headerShown: true,
+            title: 'Paramètres et confidentialité',
+            headerStyle: { backgroundColor: '#FFFFFF' },
+            headerTintColor: '#0F172A',
+            headerTitleStyle: { color: '#0F172A', fontWeight: '600' },
+          }}
+        />
       </Stack>
     </View>
   );
@@ -164,5 +202,23 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#F8FAFC',
+  },
+  offlineBanner: {
+    backgroundColor: '#B91C1C',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    zIndex: 999,
+  },
+  offlineIcon: {
+    marginRight: 6,
+  },
+  offlineBannerText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '600',
+    textAlign: 'center',
   },
 });

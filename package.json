@@ -6,6 +6,7 @@
     "@expo/ui": "~58.0.30",
     "@expo/vector-icons": "^15.0.2",
     "@hookform/resolvers": "^7.0.9",
+    "@react-native-community/netinfo": "12.0.1",
     "@supabase/supabase-js": "^2.119.2",
     "@tanstack/react-query": "^5.108.4",
     "expo": "~58.1.0",
@@ -49,7 +50,8 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "qa:audit": "node scripts/qa-security-audit.mjs"
   },
   "private": true
 }
