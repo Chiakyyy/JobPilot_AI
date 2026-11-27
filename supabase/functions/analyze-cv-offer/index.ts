@@ -208,24 +208,28 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ message: 'Cette analyse a déjà été traitée avec succès.' }, 200);
   }
 
-  // Enforce daily quota of 3 analyses per user per day.
-  const { count: dailyCount, error: countError } = await adminClient
-    .from('ai_usage_logs')
-    .select('id', { count: 'exact', head: true })
-    .eq('user_id', user.id)
-    .eq('feature', 'cv_analysis')
-    .eq('usage_date', today)
-    .in('status', ['completed', 'pending']);
+  const isQuotaEnabled = Deno.env.get('ENABLE_AI_QUOTA') === 'true';
 
-  if (countError) {
-    return jsonResponse({ error: 'Impossible de vérifier vos quotas journaliers.' }, 500);
-  }
+  if (isQuotaEnabled) {
+    // Enforce daily quota of 3 analyses per user per day when quotas are activated.
+    const { count: dailyCount, error: countError } = await adminClient
+      .from('ai_usage_logs')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+      .eq('feature', 'cv_analysis')
+      .eq('usage_date', today)
+      .in('status', ['completed', 'pending']);
 
-  if ((dailyCount ?? 0) >= 3) {
-    return jsonResponse(
-      { error: 'Quota quotidien atteint : vous avez utilisé vos 3 analyses IA aujourd\'hui.' },
-      429
-    );
+    if (countError) {
+      return jsonResponse({ error: 'Impossible de vérifier vos quotas journaliers.' }, 500);
+    }
+
+    if ((dailyCount ?? 0) >= 3) {
+      return jsonResponse(
+        { error: 'Quota quotidien atteint : vous avez utilisé vos 3 analyses IA aujourd\'hui.' },
+        429
+      );
+    }
   }
 
   const requestId = crypto.randomUUID();

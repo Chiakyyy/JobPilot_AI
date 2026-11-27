@@ -111,6 +111,7 @@ export interface AiQuotaInfo {
   interviewPrepUsed: number;
   interviewPrepMax: number;
   interviewPrepRemaining: number;
+  isUnlimited?: boolean;
 }
 
 // This interface defines the structured output returned by cv to offer alignment analysis.
@@ -135,6 +136,8 @@ export interface InterviewQuestion {
 
 // This interface defines the structured output returned by interview preparation generation.
 export interface InterviewPrepResult {
+  hr_questions?: InterviewQuestion[];
+  technical_questions?: InterviewQuestion[];
   questions: InterviewQuestion[];
   disclaimer: string;
 }

@@ -39,6 +39,26 @@ export default function AiInterviewScreen() {
   const [includeCv, setIncludeCv] = useState<boolean>(Boolean(userCv));
   const [prepResult, setPrepResult] = useState<InterviewPrepResult | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [filterCategory, setFilterCategory] = useState<'all' | 'RH' | 'Technique'>('all');
+  const [expandedCards, setExpandedCards] = useState<Record<number, boolean>>({});
+
+  // This helper toggles the expansion state of a question card.
+  const toggleCardExpansion = (index: number) => {
+    setExpandedCards((prev) => ({
+      ...prev,
+      [index]: !prev[index],
+    }));
+  };
+
+  // This helper toggles expansion for all question cards at once.
+  const handleToggleAllCards = (shouldExpand: boolean) => {
+    if (!prepResult) return;
+    const nextState: Record<number, boolean> = {};
+    prepResult.questions.forEach((_, idx) => {
+      nextState[idx] = shouldExpand;
+    });
+    setExpandedCards(nextState);
+  };
 
   // This function initiates the interview preparation generation workflow.
   const handleGenerateQuestions = async () => {
@@ -94,8 +114,24 @@ export default function AiInterviewScreen() {
     );
   }
 
+  const isUnlimited = quota?.isUnlimited ?? true;
   const remainingQuota = quota?.interviewPrepRemaining ?? 5;
-  const isQuotaExhausted = remainingQuota <= 0;
+  const isQuotaExhausted = !isUnlimited && remainingQuota <= 0;
+
+  const hrQuestions = prepResult
+    ? (prepResult.hr_questions ?? prepResult.questions.filter((q) => q.category === 'RH'))
+    : [];
+  const techQuestions = prepResult
+    ? (prepResult.technical_questions ?? prepResult.questions.filter((q) => q.category === 'Technique'))
+    : [];
+
+  const questionsToRender = prepResult
+    ? filterCategory === 'RH'
+      ? hrQuestions
+      : filterCategory === 'Technique'
+      ? techQuestions
+      : prepResult.questions
+    : [];
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
@@ -108,9 +144,9 @@ export default function AiInterviewScreen() {
       <View style={styles.consentCard}>
         <View style={styles.quotaRow}>
           <Text style={styles.quotaLabel}>Quota quotidien :</Text>
-          <View style={[styles.quotaBadge, isQuotaExhausted && styles.quotaBadgeExhausted]}>
-            <Text style={[styles.quotaBadgeText, isQuotaExhausted && styles.quotaBadgeTextExhausted]}>
-              {remainingQuota} / 5 restantes aujourd’hui
+          <View style={[styles.quotaBadge, !isUnlimited && isQuotaExhausted && styles.quotaBadgeExhausted]}>
+            <Text style={[styles.quotaBadgeText, !isUnlimited && isQuotaExhausted && styles.quotaBadgeTextExhausted]}>
+              {isUnlimited ? 'Mode test illimité' : `${remainingQuota} / 5 restantes aujourd’hui`}
             </Text>
           </View>
         </View>
@@ -184,11 +220,46 @@ export default function AiInterviewScreen() {
               {prepResult.questions.length} questions d’entraînement suggérées
             </Text>
             <Text style={styles.questionsCountSubtitle}>
-              Entraînez-vous à répondre à voix haute ou par écrit avant votre entretien.
+              {hrQuestions.length} questions RH et {techQuestions.length} questions techniques approfondies.
             </Text>
           </View>
 
-          {prepResult.questions.map((item, index) => {
+          <View style={styles.filterPillsRow}>
+            <Pressable
+              style={[styles.filterPill, filterCategory === 'all' && styles.filterPillActive]}
+              onPress={() => setFilterCategory('all')}>
+              <Text style={[styles.filterPillText, filterCategory === 'all' && styles.filterPillTextActive]}>
+                Toutes ({prepResult.questions.length})
+              </Text>
+            </Pressable>
+
+            <Pressable
+              style={[styles.filterPill, filterCategory === 'RH' && styles.filterPillActive]}
+              onPress={() => setFilterCategory('RH')}>
+              <Text style={[styles.filterPillText, filterCategory === 'RH' && styles.filterPillTextActive]}>
+                Questions RH ({hrQuestions.length})
+              </Text>
+            </Pressable>
+
+            <Pressable
+              style={[styles.filterPill, filterCategory === 'Technique' && styles.filterPillActive]}
+              onPress={() => setFilterCategory('Technique')}>
+              <Text style={[styles.filterPillText, filterCategory === 'Technique' && styles.filterPillTextActive]}>
+                Questions Techniques ({techQuestions.length})
+              </Text>
+            </Pressable>
+          </View>
+
+          <View style={styles.expandControlsRow}>
+            <Pressable style={styles.expandControlButton} onPress={() => handleToggleAllCards(true)}>
+              <Text style={styles.expandControlText}>Tout déplier</Text>
+            </Pressable>
+            <Pressable style={styles.expandControlButton} onPress={() => handleToggleAllCards(false)}>
+              <Text style={styles.expandControlText}>Tout replier</Text>
+            </Pressable>
+          </View>
+
+          {questionsToRender.map((item, index) => {
             const isTech = item.category === 'Technique';
             const diffColor =
               item.difficulty === 'Facile'
@@ -196,9 +267,13 @@ export default function AiInterviewScreen() {
                 : item.difficulty === 'Difficile'
                 ? '#DC2626'
                 : '#D97706';
+            const isExpanded = expandedCards[index] ?? false;
 
             return (
-              <View key={index} style={styles.questionCard}>
+              <Pressable
+                key={index}
+                style={styles.questionCard}
+                onPress={() => toggleCardExpansion(index)}>
                 <View style={styles.questionCardHeader}>
                   <View style={styles.badgesRow}>
                     <View
@@ -220,26 +295,37 @@ export default function AiInterviewScreen() {
                       </Text>
                     </View>
                   </View>
-                  <Text style={styles.questionNumberText}>#{index + 1}</Text>
+                  <View style={styles.cardHeaderRight}>
+                    <Text style={styles.questionNumberText}>#{index + 1}</Text>
+                    <Text style={styles.chevronText}>{isExpanded ? '▲' : '▼'}</Text>
+                  </View>
                 </View>
 
                 <Text style={styles.questionText}>{item.question}</Text>
 
-                <View style={styles.rationaleBox}>
-                  <Text style={styles.rationaleHeading}>Pourquoi cette question ?</Text>
-                  <Text style={styles.rationaleText}>{item.rationale}</Text>
-                </View>
-
-                <View style={styles.guidelinesBox}>
-                  <Text style={styles.guidelinesHeading}>Pistes de réponse suggérées :</Text>
-                  {item.answer_guidelines.map((guideline, gIdx) => (
-                    <View key={gIdx} style={styles.guidelineItem}>
-                      <Text style={styles.guidelineSymbol}>✓</Text>
-                      <Text style={styles.guidelineText}>{guideline}</Text>
+                {isExpanded ? (
+                  <>
+                    <View style={styles.rationaleBox}>
+                      <Text style={styles.rationaleHeading}>Pourquoi cette question ?</Text>
+                      <Text style={styles.rationaleText}>{item.rationale}</Text>
                     </View>
-                  ))}
-                </View>
-              </View>
+
+                    <View style={styles.guidelinesBox}>
+                      <Text style={styles.guidelinesHeading}>Pistes de réponse suggérées :</Text>
+                      {item.answer_guidelines.map((guideline, gIdx) => (
+                        <View key={gIdx} style={styles.guidelineItem}>
+                          <Text style={styles.guidelineSymbol}>✓</Text>
+                          <Text style={styles.guidelineText}>{guideline}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  </>
+                ) : (
+                  <Text style={styles.tapToExpandText}>
+                    Appuyez pour afficher la justification et les pistes de réponse
+                  </Text>
+                )}
+              </Pressable>
             );
           })}
 
@@ -445,6 +531,48 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#64748B',
   },
+  filterPillsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 10,
+    marginBottom: 8,
+  },
+  filterPill: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+  },
+  filterPillActive: {
+    backgroundColor: '#2563EB',
+    borderColor: '#2563EB',
+  },
+  filterPillText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#475569',
+  },
+  filterPillTextActive: {
+    color: '#FFFFFF',
+  },
+  expandControlsRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 12,
+    marginBottom: 4,
+  },
+  expandControlButton: {
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+  },
+  expandControlText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#2563EB',
+  },
   questionCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
@@ -462,6 +590,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+  },
+  cardHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  chevronText: {
+    fontSize: 11,
+    color: '#94A3B8',
+  },
+  tapToExpandText: {
+    fontSize: 12,
+    color: '#64748B',
+    fontStyle: 'italic',
+    marginTop: 2,
   },
   categoryBadge: {
     paddingHorizontal: 8,

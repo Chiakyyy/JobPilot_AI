@@ -109,8 +109,9 @@ export default function AiAnalysisScreen() {
     );
   }
 
+  const isUnlimited = quota?.isUnlimited ?? true;
   const remainingQuota = quota?.cvAnalysisRemaining ?? 3;
-  const isQuotaExhausted = remainingQuota <= 0;
+  const isQuotaExhausted = !isUnlimited && remainingQuota <= 0;
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
@@ -123,9 +124,9 @@ export default function AiAnalysisScreen() {
       <View style={styles.consentCard}>
         <View style={styles.quotaRow}>
           <Text style={styles.quotaLabel}>Quota quotidien :</Text>
-          <View style={[styles.quotaBadge, isQuotaExhausted && styles.quotaBadgeExhausted]}>
-            <Text style={[styles.quotaBadgeText, isQuotaExhausted && styles.quotaBadgeTextExhausted]}>
-              {remainingQuota} / 3 restantes aujourd’hui
+          <View style={[styles.quotaBadge, !isUnlimited && isQuotaExhausted && styles.quotaBadgeExhausted]}>
+            <Text style={[styles.quotaBadgeText, !isUnlimited && isQuotaExhausted && styles.quotaBadgeTextExhausted]}>
+              {isUnlimited ? 'Mode test illimité' : `${remainingQuota} / 3 restantes aujourd’hui`}
             </Text>
           </View>
         </View>

@@ -297,6 +297,17 @@ Authorized by ownership                   Authorized via EXISTS (applications + 
     2. **Verbatim Token Boundary Verification**: In `analyze-cv-offer/index.ts`, `applyGroundingFilter` inspects every item proposed in `missing_skills`. Using regex word-boundary and technical symbol matching (`(^|[^a-z0-9])${token}($|[^a-z0-9+#])`), it tests candidate tokens (and cleaned variants without parenthetical qualifiers or common verbs) against the lowercase CV text. If a skill keyword (e.g. `firebase`, `.net maui`, `figma`, `rest api`) is present verbatim in the CV, it is immediately pruned from `missing_skills`.
     3. **Mutual Exclusivity & Deduplication**: Any skill already present in `matched_skills` is stripped from `missing_skills` case-insensitively, and both arrays are deduplicated.
     4. This hybrid architecture (LLM for semantic reasoning + deterministic code for grounding enforcement) guarantees zero contradictory UI states and zero false-positive skill gaps.
+- **Feature-Flagged Rate Limiting (`ENABLE_AI_QUOTA`)**:
+  - In serverless architectures, decoupling QA/testing environments from production cost controls is essential to enable extensive automated and exploratory testing without burning daily limits or blocking engineers with HTTP `429` rejections.
+  - In both `analyze-cv-offer` and `generate-interview-prep`, Edge Functions read `const isQuotaEnabled = Deno.env.get('ENABLE_AI_QUOTA') === 'true';`. When unset or set to `false`, functions preserve full telemetry logging in `public.ai_usage_logs`, stale `pending` row cleanup, and `idempotency_key` duplicate detection, but skip the daily count check and HTTP `429` rejections.
+  - In the mobile client, `useAiQuota` evaluates `EXPO_PUBLIC_ENABLE_AI_QUOTA === 'true'` and sets `isUnlimited: true`, dynamically displaying a **`Mode test illimité`** badge and ensuring action buttons are never disabled by quota counters. Activating strict production quotas requires only setting `ENABLE_AI_QUOTA=true` in Supabase Secrets without code redeployment.
+- **Parallel LLM Fan-Out (`Promise.all`) & Token Budgeting**:
+  - Generating 20 to 28 comprehensive interview questions (each requiring a question, category, difficulty, rationale, and 2–3 actionable guidelines) in a single monolithic prompt exceeds the standard completion token limit of serverless inference providers (typically 2048 to 3000 tokens), causing catastrophic JSON truncation or timeouts.
+  - Additionally, mixing behavioral evaluation with deep technical architecture in a single system prompt causes persona dilution and superficial questions.
+  - To resolve both constraints, `CloudflareWorkersAIProvider.generateInterviewPrep` executes a parallel fan-out pattern:
+    1. **Call A (HR & Behavioral)**: Dedicated Tech Recruiter persona generating strictly 5 to 8 questions (`category: 'RH'`) covering motivation, culture fit, teamwork, and conflict resolution, with `max_tokens: 2800` and `temperature: 0.2`.
+    2. **Call B (Deep Technical)**: Dedicated Senior Staff Engineer persona generating strictly 15 to 20 questions (`category: 'Technique'`) covering architecture trade-offs, debugging scenarios, performance, and security across Facile/Moyen/Difficile difficulties, with `max_tokens: 2800` and `temperature: 0.2`.
+    3. Both calls run concurrently via `Promise.all`, halving total wall-clock latency compared to sequential execution, guaranteeing zero token truncation, and validating the aggregated 20–28 question set through Zod.
 - **Hybrid TypeScript Compiler Isolation (Node/Metro vs Deno Edge Functions)**:
   - Hybrid codebases combining React Native (Node runtime, Metro bundler, Expo TypeScript base) and serverless Edge Functions (Deno runtime, URL/npm specifiers) encounter false diagnostics if analyzed under a single TypeScript configuration.
   - The root `tsconfig.json` adds `"supabase"` and `"supabase/**/*"` to its `"exclude"` array, instructing the React Native TypeScript compiler to ignore Deno files and preventing false `ts(2307)` and `ts(2304)` error flags.
@@ -468,6 +479,27 @@ Authorized by ownership                   Authorized via EXISTS (applications + 
 >   - **Deduplication**: Case-insensitive deduplication preserves clean, non-redundant pill lists in the UI.
 > 
 > This multi-layered approach combines the semantic extraction power of LLMs with the absolute mathematical certainty of deterministic code.
+
+### Q22: Why and how do you split LLM generation into parallel fan-out calls (`Promise.all`) instead of a single prompt?
+> **Answer:**
+> In production LLM engineering, generating large, heterogeneous datasets (such as 20–28 interview questions spanning both HR behavioral questions and deep technical engineering problems) in a single prompt causes two severe problems:
+> 1. **Token Truncation**: Serverless inference providers (e.g. Cloudflare Workers AI) enforce max completion token caps (2048–3000 tokens). A single JSON array with 25+ detailed objects containing rationale and guideline bullets routinely gets cut off midway, invalidating the JSON syntax.
+> 2. **Persona Dilution**: Asking a model to simultaneously act as an empathetic HR Manager and a deep-dive Systems Architect leads to mediocre questions in both areas.
+> 
+> We solve this with parallel fan-out via `Promise.all`:
+> - **Call A (HR Call)**: Scoped with a dedicated HR persona to produce 5–8 behavioral questions (`min(5).max(8)`), with `max_tokens: 2800` and `temperature: 0.2`.
+> - **Call B (Technical Call)**: Scoped with a Senior Staff Engineer persona to produce 15–20 technical questions (`min(15).max(20)`), with `max_tokens: 2800` and `temperature: 0.2`.
+> 
+> Both calls execute concurrently in serverless Edge Functions, cutting wall-clock generation latency in half while ensuring each batch stays well within output token budgets.
+
+### Q23: How do you design feature-flagged rate limiting for AI features across testing and production?
+> **Answer:**
+> Production AI features require strict rate limiting (e.g. 3 CV analyses, 5 interview preparations per day) to control inference costs. However, hardcoding quotas hampers QA, automated testing, and developer verification.
+> 
+> We implement environment-controlled rate limiting via `ENABLE_AI_QUOTA`:
+> 1. **Backend Edge Functions**: Check `Deno.env.get('ENABLE_AI_QUOTA') === 'true'`. When disabled, telemetry logging, stale pending reservation cleanup, and idempotency key deduplication remain fully operational, but daily counter checks and HTTP 429 rejections are bypassed.
+> 2. **Frontend React Query Hooks**: `useAiQuota` reads `EXPO_PUBLIC_ENABLE_AI_QUOTA === 'true'` and sets `isUnlimited: true`, displaying **`Mode test illimité`** in the mobile UI and keeping generation buttons enabled.
+> 3. **Instant Toggle in Production**: Transitioning to production requires zero code changes or rebuilds—simply setting `ENABLE_AI_QUOTA=true` in Supabase Secrets immediately turns on strict enforcement.
 
 ---
 

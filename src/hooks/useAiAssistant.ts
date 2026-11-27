@@ -84,6 +84,7 @@ async function extractFunctionErrorMessage(err: unknown, defaultMessage: string)
 // This hook retrieves the remaining daily quota counters for the authenticated user.
 export function useAiQuota() {
   const { user } = useAuth();
+  const isQuotaEnabled = process.env.EXPO_PUBLIC_ENABLE_AI_QUOTA === 'true';
 
   return useQuery<AiQuotaInfo>({
     queryKey: ['ai-quota', user?.id],
@@ -96,6 +97,7 @@ export function useAiQuota() {
           interviewPrepUsed: 0,
           interviewPrepMax: 5,
           interviewPrepRemaining: 5,
+          isUnlimited: !isQuotaEnabled,
         };
       }
 
@@ -116,6 +118,7 @@ export function useAiQuota() {
           interviewPrepUsed: 0,
           interviewPrepMax: 5,
           interviewPrepRemaining: 5,
+          isUnlimited: !isQuotaEnabled,
         };
       }
 
@@ -130,6 +133,7 @@ export function useAiQuota() {
         interviewPrepUsed: interviewUsed,
         interviewPrepMax: 5,
         interviewPrepRemaining: Math.max(0, 5 - interviewUsed),
+        isUnlimited: !isQuotaEnabled,
       };
     },
     enabled: Boolean(user?.id),
